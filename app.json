@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "IronCoach",
+    "slug": "ironcoach",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0a0a0f"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ironcoach.app",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "IronCoach reads your health data to personalize your training plan.",
+        "NSHealthUpdateUsageDescription": "IronCoach logs workouts to Apple Health."
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.background-delivery": true
+      }
+    },
+    "plugins": [
+      [
+        "expo-health",
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
+      ]
+    ]
+  }
+}
