@@ -105,7 +105,10 @@ Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}.`;
   try {
     const response = await callClaude(systemPrompt, userPrompt);
     // Parse JSON from response, handling potential markdown wrapping
-    const jsonStr = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const jsonStr = response
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
     return JSON.parse(jsonStr);
   } catch (e) {
     console.warn('Failed to generate workout:', e);
@@ -157,14 +160,13 @@ Total time: ${weekHistory.reduce((sum, w) => sum + (w.duration || 0), 0)} minute
 /**
  * Fallback workout when Claude API is unavailable.
  */
-function getFallbackWorkout(readinessScore, phase) {
+function getFallbackWorkout(readinessScore, _phase) {
   if (readinessScore < 55) {
     return {
       title: 'Active Recovery',
       discipline: 'rest',
       duration: 30,
-      summary:
-        'Your readiness is low today. Focus on gentle movement and recovery.',
+      summary: 'Your readiness is low today. Focus on gentle movement and recovery.',
       intensity: 'recovery',
       sections: [
         {
@@ -184,8 +186,7 @@ function getFallbackWorkout(readinessScore, phase) {
     title: 'Zone 2 Endurance',
     discipline: 'bike',
     duration: 60,
-    summary:
-      'Steady aerobic ride to build your base. Keep heart rate in Zone 2.',
+    summary: 'Steady aerobic ride to build your base. Keep heart rate in Zone 2.',
     intensity: 'moderate',
     sections: [
       {
@@ -207,9 +208,7 @@ function getFallbackWorkout(readinessScore, phase) {
       {
         name: 'Cooldown',
         notes: 'Easy spinning to flush the legs.',
-        sets: [
-          { description: '10 min easy spin, gradually reduce effort', zone: 1 },
-        ],
+        sets: [{ description: '10 min easy spin, gradually reduce effort', zone: 1 }],
       },
     ],
   };

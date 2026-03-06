@@ -1,14 +1,39 @@
+# Dependencies
 node_modules/
+
+# Expo
 .expo/
 dist/
+web-build/
+
+# Native builds
+ios/
+android/
+
+# Keystore/signing
 *.jks
 *.p8
 *.p12
 *.key
+*.pem
 *.mobileprovision
 *.orig.*
-web-build/
+
+# Secrets / environment
 .env
-.env.local
-ios/
-android/
+.env.*
+secrets.js
+config.local.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Coverage
+coverage/

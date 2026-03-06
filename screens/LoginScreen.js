@@ -1,18 +1,7 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Platform,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import {
-  signInWithGoogle,
-  signInWithApple,
-  isAppleSignInAvailable,
-} from '../services/auth';
+import { signInWithGoogle, signInWithApple, isAppleSignInAvailable } from '../services/auth';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -50,21 +39,13 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <View style={styles.hero}>
         <Text style={styles.appName}>IronCoach</Text>
-        <Text style={styles.tagline}>
-          AI-powered Ironman training{'\n'}on your iPhone
-        </Text>
+        <Text style={styles.tagline}>AI-powered Ironman training{'\n'}on your iPhone</Text>
       </View>
 
       <View style={styles.features}>
-        <Text style={styles.feature}>
-          ● Personalized daily workouts from on-device AI
-        </Text>
-        <Text style={styles.feature}>
-          ● Apple Health integration for smart recovery
-        </Text>
-        <Text style={styles.feature}>
-          ● Periodized Ironman training plans
-        </Text>
+        <Text style={styles.feature}>● Personalized daily workouts from on-device AI</Text>
+        <Text style={styles.feature}>● Apple Health integration for smart recovery</Text>
+        <Text style={styles.feature}>● Periodized Ironman training plans</Text>
       </View>
 
       <View style={styles.buttons}>
@@ -92,8 +73,8 @@ export default function LoginScreen() {
       </View>
 
       <Text style={styles.disclaimer}>
-        By signing in, you agree to our Terms of Service and Privacy Policy.
-        Your health data stays on your device.
+        By signing in, you agree to our Terms of Service and Privacy Policy. Your health data stays
+        on your device.
       </Text>
     </View>
   );

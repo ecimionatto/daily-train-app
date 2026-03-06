@@ -67,13 +67,8 @@ export default function RecoveryScreen() {
 
       {/* Overall Readiness */}
       <View style={styles.readinessCard}>
-        <Text style={styles.cardLabel}>TODAY'S READINESS</Text>
-        <Text
-          style={[
-            styles.readinessValue,
-            { color: getReadinessColor(readinessScore || 0) },
-          ]}
-        >
+        <Text style={styles.cardLabel}>{"TODAY'S READINESS"}</Text>
+        <Text style={[styles.readinessValue, { color: getReadinessColor(readinessScore || 0) }]}>
           {readinessScore || '--'}
         </Text>
         <Text style={styles.readinessScale}>/100</Text>
@@ -85,8 +80,7 @@ export default function RecoveryScreen() {
           <View>
             <Text style={styles.cardLabel}>HRV (SDNN)</Text>
             <Text style={styles.trendValue}>
-              {healthData?.hrv || '--'}{' '}
-              <Text style={styles.trendUnit}>ms</Text>
+              {healthData?.hrv || '--'} <Text style={styles.trendUnit}>ms</Text>
             </Text>
           </View>
           <Text style={styles.trendDirection}>
@@ -94,14 +88,12 @@ export default function RecoveryScreen() {
             hrvValues[hrvValues.length - 1] > hrvValues[hrvValues.length - 2]
               ? '↑'
               : hrvValues.length >= 2
-              ? '↓'
-              : '—'}
+                ? '↓'
+                : '—'}
           </Text>
         </View>
         {renderSparkline(hrvValues, '#47ffb2')}
-        <Text style={styles.trendHint}>
-          Higher HRV = better recovery and readiness
-        </Text>
+        <Text style={styles.trendHint}>Higher HRV = better recovery and readiness</Text>
       </View>
 
       {/* Resting HR Trend */}
@@ -110,8 +102,7 @@ export default function RecoveryScreen() {
           <View>
             <Text style={styles.cardLabel}>RESTING HEART RATE</Text>
             <Text style={styles.trendValue}>
-              {healthData?.restingHR || '--'}{' '}
-              <Text style={styles.trendUnit}>bpm</Text>
+              {healthData?.restingHR || '--'} <Text style={styles.trendUnit}>bpm</Text>
             </Text>
           </View>
           <Text style={styles.trendDirection}>
@@ -119,14 +110,12 @@ export default function RecoveryScreen() {
             rhrValues[rhrValues.length - 1] < rhrValues[rhrValues.length - 2]
               ? '↓ ✓'
               : rhrValues.length >= 2
-              ? '↑'
-              : '—'}
+                ? '↑'
+                : '—'}
           </Text>
         </View>
         {renderSparkline(rhrValues, '#ff6b6b')}
-        <Text style={styles.trendHint}>
-          Lower RHR = better cardiovascular fitness
-        </Text>
+        <Text style={styles.trendHint}>Lower RHR = better cardiovascular fitness</Text>
       </View>
 
       {/* Sleep Trend */}
@@ -135,8 +124,7 @@ export default function RecoveryScreen() {
           <View>
             <Text style={styles.cardLabel}>SLEEP</Text>
             <Text style={styles.trendValue}>
-              {healthData?.sleepHours?.toFixed(1) || '--'}{' '}
-              <Text style={styles.trendUnit}>hrs</Text>
+              {healthData?.sleepHours?.toFixed(1) || '--'} <Text style={styles.trendUnit}>hrs</Text>
             </Text>
           </View>
           <Text
@@ -147,22 +135,20 @@ export default function RecoveryScreen() {
                   (healthData?.sleepHours || 0) >= 7
                     ? '#47ffb2'
                     : (healthData?.sleepHours || 0) >= 6
-                    ? '#e8ff47'
-                    : '#ff6b6b',
+                      ? '#e8ff47'
+                      : '#ff6b6b',
               },
             ]}
           >
             {(healthData?.sleepHours || 0) >= 7
               ? 'GOOD'
               : (healthData?.sleepHours || 0) >= 6
-              ? 'OK'
-              : 'LOW'}
+                ? 'OK'
+                : 'LOW'}
           </Text>
         </View>
         {renderSparkline(sleepValues, '#47b2ff', 10)}
-        <Text style={styles.trendHint}>
-          Aim for 7-9 hours for optimal recovery
-        </Text>
+        <Text style={styles.trendHint}>Aim for 7-9 hours for optimal recovery</Text>
       </View>
 
       {/* VO2Max if available */}
@@ -170,12 +156,9 @@ export default function RecoveryScreen() {
         <View style={styles.trendCard}>
           <Text style={styles.cardLabel}>VO2 MAX</Text>
           <Text style={styles.trendValue}>
-            {healthData.vo2Max}{' '}
-            <Text style={styles.trendUnit}>ml/kg/min</Text>
+            {healthData.vo2Max} <Text style={styles.trendUnit}>ml/kg/min</Text>
           </Text>
-          <Text style={styles.trendHint}>
-            Measured from Apple Watch workouts
-          </Text>
+          <Text style={styles.trendHint}>Measured from Apple Watch workouts</Text>
         </View>
       )}
 

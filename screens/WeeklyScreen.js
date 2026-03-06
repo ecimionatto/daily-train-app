@@ -1,11 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '../context/AppContext';
 import { generateWeeklySummaryLocally } from '../services/localModel';
@@ -39,9 +33,7 @@ export default function WeeklyScreen() {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      const thisWeek = history.filter(
-        (w) => new Date(w.completedAt) >= sevenDaysAgo
-      );
+      const thisWeek = history.filter((w) => new Date(w.completedAt) >= sevenDaysAgo);
       setWeekHistory(thisWeek);
     } catch (e) {
       console.warn('Failed to load week history:', e);
@@ -76,10 +68,7 @@ export default function WeeklyScreen() {
   }
 
   function getWeekStats() {
-    const totalDuration = weekHistory.reduce(
-      (sum, w) => sum + (w.duration || 0),
-      0
-    );
+    const totalDuration = weekHistory.reduce((sum, w) => sum + (w.duration || 0), 0);
     const disciplines = {};
     weekHistory.forEach((w) => {
       const d = w.discipline?.toLowerCase() || 'other';
@@ -114,8 +103,7 @@ export default function WeeklyScreen() {
                     style={[
                       styles.gridDot,
                       {
-                        backgroundColor:
-                          DISCIPLINES[w.discipline?.toLowerCase()] || '#888',
+                        backgroundColor: DISCIPLINES[w.discipline?.toLowerCase()] || '#888',
                       },
                     ]}
                   />
@@ -133,9 +121,7 @@ export default function WeeklyScreen() {
         {Object.entries(DISCIPLINES).map(([name, color]) => (
           <View key={name} style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: color }]} />
-            <Text style={styles.legendText}>
-              {name.charAt(0).toUpperCase() + name.slice(1)}
-            </Text>
+            <Text style={styles.legendText}>{name.charAt(0).toUpperCase() + name.slice(1)}</Text>
           </View>
         ))}
       </View>
@@ -144,10 +130,7 @@ export default function WeeklyScreen() {
       <View style={styles.breakdownCard}>
         <Text style={styles.sectionTitle}>DISCIPLINE BREAKDOWN</Text>
         {Object.entries(stats.disciplines).map(([discipline, minutes]) => {
-          const pct =
-            stats.totalDuration > 0
-              ? (minutes / stats.totalDuration) * 100
-              : 0;
+          const pct = stats.totalDuration > 0 ? (minutes / stats.totalDuration) * 100 : 0;
           return (
             <View key={discipline} style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>
@@ -159,8 +142,7 @@ export default function WeeklyScreen() {
                     styles.breakdownBar,
                     {
                       width: `${pct}%`,
-                      backgroundColor:
-                        DISCIPLINES[discipline] || '#888',
+                      backgroundColor: DISCIPLINES[discipline] || '#888',
                     },
                   ]}
                 />
@@ -186,9 +168,7 @@ export default function WeeklyScreen() {
             disabled={loadingSummary}
           >
             <Text style={styles.debriefButtonText}>
-              {loadingSummary
-                ? 'Analyzing your week...'
-                : 'GET WEEKLY ANALYSIS'}
+              {loadingSummary ? 'Analyzing your week...' : 'GET WEEKLY ANALYSIS'}
             </Text>
           </TouchableOpacity>
         )}

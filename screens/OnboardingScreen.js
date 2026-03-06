@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Platform,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
 
@@ -92,14 +85,11 @@ export default function OnboardingScreen({ onComplete }) {
         <Text style={styles.stepLabel}>STEP 1 OF {QUESTIONS.length + 1}</Text>
         <Text style={styles.title}>When is your race?</Text>
         <Text style={styles.subtitle}>
-          We'll build your periodized plan backwards from race day.
+          {"We'll build your periodized plan backwards from race day."}
         </Text>
 
         {Platform.OS === 'android' && !showDatePicker && (
-          <TouchableOpacity
-            style={styles.dateButton}
-            onPress={() => setShowDatePicker(true)}
-          >
+          <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
             <Text style={styles.dateButtonText}>
               {raceDate.toLocaleDateString('en-US', {
                 weekday: 'long',
@@ -154,17 +144,11 @@ export default function OnboardingScreen({ onComplete }) {
         {q.options.map((option) => (
           <TouchableOpacity
             key={option}
-            style={[
-              styles.optionButton,
-              answers[q.key] === option && styles.optionSelected,
-            ]}
+            style={[styles.optionButton, answers[q.key] === option && styles.optionSelected]}
             onPress={() => selectOption(q.key, option)}
           >
             <Text
-              style={[
-                styles.optionText,
-                answers[q.key] === option && styles.optionTextSelected,
-              ]}
+              style={[styles.optionText, answers[q.key] === option && styles.optionTextSelected]}
             >
               {option}
             </Text>
@@ -173,10 +157,7 @@ export default function OnboardingScreen({ onComplete }) {
       </ScrollView>
 
       {step > 0 && (
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => setStep(step - 1)}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => setStep(step - 1)}>
           <Text style={styles.backButtonText}>BACK</Text>
         </TouchableOpacity>
       )}

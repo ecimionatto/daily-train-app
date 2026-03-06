@@ -32,10 +32,7 @@ const NAV_THEME = {
 
 function MainTabs() {
   return (
-    <Tab.Navigator
-      tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false }}
-    >
+    <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Workout" component={WorkoutScreen} />
       <Tab.Screen name="Recovery" component={RecoveryScreen} />
@@ -72,12 +69,7 @@ function AppNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
         ) : !isOnboarded ? (
           <Stack.Screen name="Onboarding">
-            {(props) => (
-              <OnboardingScreen
-                {...props}
-                onComplete={() => setIsOnboarded(true)}
-              />
-            )}
+            {(props) => <OnboardingScreen {...props} onComplete={() => setIsOnboarded(true)} />}
           </Stack.Screen>
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />

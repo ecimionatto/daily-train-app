@@ -72,10 +72,7 @@ export function AppProvider({ children }) {
   async function saveTodayWorkout(workout) {
     try {
       const today = new Date().toDateString();
-      await AsyncStorage.setItem(
-        'todayWorkout',
-        JSON.stringify({ date: today, workout })
-      );
+      await AsyncStorage.setItem('todayWorkout', JSON.stringify({ date: today, workout }));
       setTodayWorkout(workout);
     } catch (e) {
       console.warn('Failed to save workout:', e);

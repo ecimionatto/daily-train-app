@@ -43,20 +43,10 @@ export default function TabBar({ state, descriptors, navigation }) {
             onPress={onPress}
             style={styles.tab}
           >
-            <Text
-              style={[
-                styles.icon,
-                isFocused ? styles.iconFocused : styles.iconDefault,
-              ]}
-            >
+            <Text style={[styles.icon, isFocused ? styles.iconFocused : styles.iconDefault]}>
               {config.icon}
             </Text>
-            <Text
-              style={[
-                styles.label,
-                isFocused ? styles.labelFocused : styles.labelDefault,
-              ]}
-            >
+            <Text style={[styles.label, isFocused ? styles.labelFocused : styles.labelDefault]}>
               {config.label}
             </Text>
           </TouchableOpacity>

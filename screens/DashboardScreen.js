@@ -1,12 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { generateWorkoutLocally } from '../services/localModel';
 
@@ -32,6 +25,7 @@ export default function DashboardScreen({ navigation }) {
     if (!todayWorkout && healthData && athleteProfile) {
       fetchWorkout();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthData, athleteProfile]);
 
   async function fetchWorkout() {
@@ -81,11 +75,7 @@ export default function DashboardScreen({ navigation }) {
     <ScrollView
       style={styles.container}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor="#e8ff47"
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e8ff47" />
       }
     >
       <View style={styles.header}>
@@ -105,22 +95,12 @@ export default function DashboardScreen({ navigation }) {
       {readinessScore !== null && (
         <View style={styles.readinessCard}>
           <View style={styles.readinessRow}>
-            <Text
-              style={[
-                styles.readinessScore,
-                { color: getReadinessColor(readinessScore) },
-              ]}
-            >
+            <Text style={[styles.readinessScore, { color: getReadinessColor(readinessScore) }]}>
               {readinessScore}
             </Text>
             <View style={styles.readinessInfo}>
               <Text style={styles.readinessTitle}>READINESS</Text>
-              <Text
-                style={[
-                  styles.readinessLabel,
-                  { color: getReadinessColor(readinessScore) },
-                ]}
-              >
+              <Text style={[styles.readinessLabel, { color: getReadinessColor(readinessScore) }]}>
                 {getReadinessLabel(readinessScore)}
               </Text>
             </View>
@@ -129,21 +109,15 @@ export default function DashboardScreen({ navigation }) {
           {healthData && (
             <View style={styles.metricsRow}>
               <View style={styles.metric}>
-                <Text style={styles.metricValue}>
-                  {healthData.restingHR || '--'}
-                </Text>
+                <Text style={styles.metricValue}>{healthData.restingHR || '--'}</Text>
                 <Text style={styles.metricLabel}>RHR</Text>
               </View>
               <View style={styles.metric}>
-                <Text style={styles.metricValue}>
-                  {healthData.hrv || '--'}
-                </Text>
+                <Text style={styles.metricValue}>{healthData.hrv || '--'}</Text>
                 <Text style={styles.metricLabel}>HRV</Text>
               </View>
               <View style={styles.metric}>
-                <Text style={styles.metricValue}>
-                  {healthData.sleepHours?.toFixed(1) || '--'}
-                </Text>
+                <Text style={styles.metricValue}>{healthData.sleepHours?.toFixed(1) || '--'}</Text>
                 <Text style={styles.metricLabel}>SLEEP</Text>
               </View>
             </View>
@@ -153,21 +127,15 @@ export default function DashboardScreen({ navigation }) {
 
       {/* Today's Workout Preview */}
       <View style={styles.workoutCard}>
-        <Text style={styles.sectionTitle}>TODAY'S SESSION</Text>
+        <Text style={styles.sectionTitle}>{"TODAY'S SESSION"}</Text>
         {loading ? (
           <Text style={styles.loadingText}>Generating your workout...</Text>
         ) : todayWorkout ? (
           <>
             <Text style={styles.workoutTitle}>{todayWorkout.title}</Text>
-            <Text style={styles.workoutDiscipline}>
-              {todayWorkout.discipline?.toUpperCase()}
-            </Text>
-            <Text style={styles.workoutDuration}>
-              {todayWorkout.duration} min
-            </Text>
-            <Text style={styles.workoutDescription}>
-              {todayWorkout.summary}
-            </Text>
+            <Text style={styles.workoutDiscipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
+            <Text style={styles.workoutDuration}>{todayWorkout.duration} min</Text>
+            <Text style={styles.workoutDescription}>{todayWorkout.summary}</Text>
             <TouchableOpacity
               style={styles.startButton}
               onPress={() => navigation.navigate('Workout')}

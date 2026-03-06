@@ -1,0 +1,30 @@
+[tools]
+node = "20"
+
+[tasks.start]
+description = "Start Expo dev server"
+run = "npx expo start"
+
+[tasks.lint]
+description = "Run ESLint on all JS files"
+run = "npx eslint ."
+
+[tasks."lint:fix"]
+description = "Run ESLint with auto-fix"
+run = "npx eslint . --fix"
+
+[tasks.format]
+description = "Run Prettier on all JS files"
+run = "npx prettier --write '**/*.js'"
+
+[tasks."format:check"]
+description = "Check Prettier formatting"
+run = "npx prettier --check '**/*.js'"
+
+[tasks.test]
+description = "Run Jest tests"
+run = "npx jest"
+
+[tasks."test:watch"]
+description = "Run Jest in watch mode"
+run = "npx jest --watch"

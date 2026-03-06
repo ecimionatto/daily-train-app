@@ -1,11 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '../context/AppContext';
 
@@ -19,7 +13,7 @@ export default function WorkoutScreen() {
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyTitle}>No Workout Yet</Text>
         <Text style={styles.emptySubtitle}>
-          Head to the Dashboard to generate today's session.
+          {"Head to the Dashboard to generate today's session."}
         </Text>
       </View>
     );
@@ -36,10 +30,7 @@ export default function WorkoutScreen() {
 
   function getTotalSets() {
     if (!todayWorkout.sections) return 0;
-    return todayWorkout.sections.reduce(
-      (sum, s) => sum + (s.sets?.length || 0),
-      0
-    );
+    return todayWorkout.sections.reduce((sum, s) => sum + (s.sets?.length || 0), 0);
   }
 
   function getCompletedCount() {
@@ -69,9 +60,7 @@ export default function WorkoutScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{todayWorkout.title}</Text>
-        <Text style={styles.discipline}>
-          {todayWorkout.discipline?.toUpperCase()}
-        </Text>
+        <Text style={styles.discipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
         <Text style={styles.duration}>{todayWorkout.duration} min</Text>
       </View>
 
@@ -89,41 +78,24 @@ export default function WorkoutScreen() {
       {todayWorkout.sections?.map((section, sIdx) => (
         <View key={sIdx} style={styles.section}>
           <Text style={styles.sectionTitle}>{section.name?.toUpperCase()}</Text>
-          {section.notes && (
-            <Text style={styles.sectionNotes}>{section.notes}</Text>
-          )}
+          {section.notes && <Text style={styles.sectionNotes}>{section.notes}</Text>}
 
           {section.sets?.map((set, setIdx) => (
             <TouchableOpacity
               key={setIdx}
-              style={[
-                styles.setRow,
-                isSetDone(sIdx, setIdx) && styles.setDone,
-              ]}
+              style={[styles.setRow, isSetDone(sIdx, setIdx) && styles.setDone]}
               onPress={() => toggleSet(sIdx, setIdx)}
             >
-              <View
-                style={[
-                  styles.checkbox,
-                  isSetDone(sIdx, setIdx) && styles.checkboxDone,
-                ]}
-              >
-                {isSetDone(sIdx, setIdx) && (
-                  <Text style={styles.checkmark}>✓</Text>
-                )}
+              <View style={[styles.checkbox, isSetDone(sIdx, setIdx) && styles.checkboxDone]}>
+                {isSetDone(sIdx, setIdx) && <Text style={styles.checkmark}>✓</Text>}
               </View>
               <View style={styles.setInfo}>
                 <Text
-                  style={[
-                    styles.setDescription,
-                    isSetDone(sIdx, setIdx) && styles.setTextDone,
-                  ]}
+                  style={[styles.setDescription, isSetDone(sIdx, setIdx) && styles.setTextDone]}
                 >
                   {set.description}
                 </Text>
-                {set.zone && (
-                  <Text style={styles.setZone}>Zone {set.zone}</Text>
-                )}
+                {set.zone && <Text style={styles.setZone}>Zone {set.zone}</Text>}
               </View>
             </TouchableOpacity>
           ))}
@@ -133,10 +105,7 @@ export default function WorkoutScreen() {
       {/* Complete Button */}
       {!workoutCompleted ? (
         <TouchableOpacity
-          style={[
-            styles.completeButton,
-            progress < 0.5 && styles.completeButtonDisabled,
-          ]}
+          style={[styles.completeButton, progress < 0.5 && styles.completeButtonDisabled]}
           onPress={markWorkoutComplete}
         >
           <Text style={styles.completeButtonText}>MARK COMPLETE</Text>

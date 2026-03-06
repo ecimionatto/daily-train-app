@@ -87,7 +87,10 @@ Day: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}.`;
   const modelResponse = await runInference(systemPrompt, userPrompt);
   if (modelResponse) {
     try {
-      const jsonStr = modelResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const jsonStr = modelResponse
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
       return JSON.parse(jsonStr);
     } catch {
       console.warn('Failed to parse local model output, using fallback');
@@ -106,7 +109,8 @@ export async function generateWeeklySummaryLocally({ profile, weekHistory, phase
     .map((w) => `${w.discipline}: ${w.title} (${w.duration}min)`)
     .join(', ');
 
-  const systemPrompt = 'You are an Ironman coach. Give a 2-3 paragraph weekly debrief. Plain text only.';
+  const systemPrompt =
+    'You are an Ironman coach. Give a 2-3 paragraph weekly debrief. Plain text only.';
   const userPrompt = `Athlete: ${profile.level}, phase: ${phase}. Workouts: ${workoutList || 'none'}, total sessions: ${weekHistory.length}.`;
 
   const modelResponse = await runInference(systemPrompt, userPrompt);
@@ -120,7 +124,9 @@ export async function generateWeeklySummaryLocally({ profile, weekHistory, phase
     disciplines[d] = (disciplines[d] || 0) + 1;
   });
 
-  const parts = [`This week you completed ${weekHistory.length} sessions totaling ${Math.round(totalMin / 60)} hours and ${totalMin % 60} minutes of training.`];
+  const parts = [
+    `This week you completed ${weekHistory.length} sessions totaling ${Math.round(totalMin / 60)} hours and ${totalMin % 60} minutes of training.`,
+  ];
 
   if (Object.keys(disciplines).length > 0) {
     const breakdown = Object.entries(disciplines)
@@ -129,9 +135,9 @@ export async function generateWeeklySummaryLocally({ profile, weekHistory, phase
     parts.push(`Breakdown: ${breakdown}.`);
   }
 
-  parts.push(`You're in the ${phase.toLowerCase().replace('_', ' ')} phase. ${
-    readinessMessage(phase)
-  }`);
+  parts.push(
+    `You're in the ${phase.toLowerCase().replace('_', ' ')} phase. ${readinessMessage(phase)}`
+  );
 
   return parts.join(' ');
 }
@@ -142,7 +148,7 @@ function readinessMessage(phase) {
     BUILD: 'Time to add some intensity. Include one quality session per discipline each week.',
     PEAK: 'Your biggest training weeks are here. Balance hard sessions with adequate recovery.',
     TAPER: 'Volume is dropping but keep intensity up. Trust the process and prioritize rest.',
-    RACE_WEEK: 'Stay calm and stick to easy movement. You\'ve done the work. Time to race.',
+    RACE_WEEK: "Stay calm and stick to easy movement. You've done the work. Time to race.",
   };
   return messages[phase] || messages.BASE;
 }
@@ -152,7 +158,7 @@ function readinessMessage(phase) {
  * Uses readiness score, training phase, day of week, and athlete profile
  * to construct a structured workout.
  */
-function generateRuleBasedWorkout({ profile, healthData, readinessScore, phase, daysToRace }) {
+function generateRuleBasedWorkout({ profile, _healthData, readinessScore, phase, _daysToRace }) {
   const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ...
   const score = readinessScore || 65;
 
@@ -184,9 +190,8 @@ function generateRuleBasedWorkout({ profile, healthData, readinessScore, phase, 
 
   // Adjust duration based on phase and available hours
   const baseDuration = getBaseDuration(phase, profile.weeklyHours);
-  const adjustedDuration = score >= 75
-    ? Math.round(baseDuration * 1.1)
-    : Math.round(baseDuration * 0.9);
+  const adjustedDuration =
+    score >= 75 ? Math.round(baseDuration * 1.1) : Math.round(baseDuration * 0.9);
 
   return buildWorkout(todayPlan, adjustedDuration, score, phase, profile);
 }
@@ -208,12 +213,16 @@ function getBaseDuration(phase, weeklyHours) {
   const hoursMap = { '5-7': 50, '8-10': 70, '11-14': 85, '15+': 100 };
   const base = hoursMap[weeklyHours] || 60;
   const phaseMultiplier = {
-    BASE: 0.9, BUILD: 1.0, PEAK: 1.1, TAPER: 0.7, RACE_WEEK: 0.4,
+    BASE: 0.9,
+    BUILD: 1.0,
+    PEAK: 1.1,
+    TAPER: 0.7,
+    RACE_WEEK: 0.4,
   };
   return Math.round(base * (phaseMultiplier[phase] || 1));
 }
 
-function buildWorkout(discipline, duration, readiness, phase, profile) {
+function buildWorkout(discipline, duration, readiness, _phase, _profile) {
   const intensity = readiness >= 75 ? 'hard' : 'moderate';
 
   const workouts = {
@@ -221,9 +230,10 @@ function buildWorkout(discipline, duration, readiness, phase, profile) {
       title: intensity === 'hard' ? 'Threshold Swim' : 'Endurance Swim',
       discipline: 'swim',
       duration,
-      summary: intensity === 'hard'
-        ? 'Build threshold pace with structured intervals.'
-        : 'Steady aerobic swimming to build endurance and technique.',
+      summary:
+        intensity === 'hard'
+          ? 'Build threshold pace with structured intervals.'
+          : 'Steady aerobic swimming to build endurance and technique.',
       intensity,
       sections: [
         {
@@ -237,15 +247,16 @@ function buildWorkout(discipline, duration, readiness, phase, profile) {
         {
           name: 'Main Set',
           notes: intensity === 'hard' ? 'Push threshold pace on intervals.' : 'Hold steady pace.',
-          sets: intensity === 'hard'
-            ? [
-                { description: '6x200m at threshold pace, 20s rest', zone: 4 },
-                { description: '4x100m descending 1-4, 15s rest', zone: 3 },
-              ]
-            : [
-                { description: `${Math.round(duration * 0.5)} min steady swimming`, zone: 2 },
-                { description: 'Focus on bilateral breathing and catch', zone: 2 },
-              ],
+          sets:
+            intensity === 'hard'
+              ? [
+                  { description: '6x200m at threshold pace, 20s rest', zone: 4 },
+                  { description: '4x100m descending 1-4, 15s rest', zone: 3 },
+                ]
+              : [
+                  { description: `${Math.round(duration * 0.5)} min steady swimming`, zone: 2 },
+                  { description: 'Focus on bilateral breathing and catch', zone: 2 },
+                ],
         },
         {
           name: 'Cooldown',
@@ -258,30 +269,31 @@ function buildWorkout(discipline, duration, readiness, phase, profile) {
       title: intensity === 'hard' ? 'Tempo Ride' : 'Zone 2 Endurance Ride',
       discipline: 'bike',
       duration,
-      summary: intensity === 'hard'
-        ? 'Build power at tempo with structured intervals.'
-        : 'Steady aerobic ride to build your cycling base.',
+      summary:
+        intensity === 'hard'
+          ? 'Build power at tempo with structured intervals.'
+          : 'Steady aerobic ride to build your cycling base.',
       intensity,
       sections: [
         {
           name: 'Warmup',
           notes: 'Gradually increase effort.',
-          sets: [
-            { description: `${Math.round(duration * 0.15)} min easy spinning`, zone: 1 },
-          ],
+          sets: [{ description: `${Math.round(duration * 0.15)} min easy spinning`, zone: 1 }],
         },
         {
           name: 'Main Set',
-          notes: intensity === 'hard' ? 'Tempo intervals with recovery.' : 'Maintain Zone 2 effort.',
-          sets: intensity === 'hard'
-            ? [
-                { description: '3x10 min at tempo, 3 min easy between', zone: 3 },
-                { description: 'Maintain 85-95 RPM during intervals', zone: 3 },
-              ]
-            : [
-                { description: `${Math.round(duration * 0.7)} min steady Zone 2`, zone: 2 },
-                { description: 'Smooth pedaling at 85-95 RPM', zone: 2 },
-              ],
+          notes:
+            intensity === 'hard' ? 'Tempo intervals with recovery.' : 'Maintain Zone 2 effort.',
+          sets:
+            intensity === 'hard'
+              ? [
+                  { description: '3x10 min at tempo, 3 min easy between', zone: 3 },
+                  { description: 'Maintain 85-95 RPM during intervals', zone: 3 },
+                ]
+              : [
+                  { description: `${Math.round(duration * 0.7)} min steady Zone 2`, zone: 2 },
+                  { description: 'Smooth pedaling at 85-95 RPM', zone: 2 },
+                ],
         },
         {
           name: 'Cooldown',
@@ -294,9 +306,10 @@ function buildWorkout(discipline, duration, readiness, phase, profile) {
       title: intensity === 'hard' ? 'Tempo Run' : 'Easy Aerobic Run',
       discipline: 'run',
       duration,
-      summary: intensity === 'hard'
-        ? 'Build running speed with tempo intervals.'
-        : 'Relaxed aerobic run to build endurance.',
+      summary:
+        intensity === 'hard'
+          ? 'Build running speed with tempo intervals.'
+          : 'Relaxed aerobic run to build endurance.',
       intensity,
       sections: [
         {
@@ -310,15 +323,16 @@ function buildWorkout(discipline, duration, readiness, phase, profile) {
         {
           name: 'Main Set',
           notes: intensity === 'hard' ? 'Run at tempo effort.' : 'Keep it conversational.',
-          sets: intensity === 'hard'
-            ? [
-                { description: '4x5 min at tempo, 2 min jog recovery', zone: 3 },
-                { description: 'Focus on quick turnover ~170-180 spm', zone: 3 },
-              ]
-            : [
-                { description: `${Math.round(duration * 0.7)} min easy running`, zone: 2 },
-                { description: 'You should be able to hold a conversation', zone: 2 },
-              ],
+          sets:
+            intensity === 'hard'
+              ? [
+                  { description: '4x5 min at tempo, 2 min jog recovery', zone: 3 },
+                  { description: 'Focus on quick turnover ~170-180 spm', zone: 3 },
+                ]
+              : [
+                  { description: `${Math.round(duration * 0.7)} min easy running`, zone: 2 },
+                  { description: 'You should be able to hold a conversation', zone: 2 },
+                ],
         },
         {
           name: 'Cooldown',

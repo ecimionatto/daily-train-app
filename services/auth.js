@@ -61,10 +61,9 @@ export async function signInWithGoogle() {
   if (result.type === 'success') {
     const { access_token } = result.params;
     // Fetch user info from Google
-    const userInfoResponse = await fetch(
-      'https://www.googleapis.com/oauth2/v2/userinfo',
-      { headers: { Authorization: `Bearer ${access_token}` } }
-    );
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
     const userInfo = await userInfoResponse.json();
 
     return {
@@ -135,10 +134,7 @@ export function isAppleSignInAvailable() {
 async function generateNonce() {
   if (CryptoModule?.digestStringAsync) {
     const randomBytes = Math.random().toString(36).substring(2, 15);
-    return CryptoModule.digestStringAsync(
-      CryptoModule.CryptoDigestAlgorithm.SHA256,
-      randomBytes
-    );
+    return CryptoModule.digestStringAsync(CryptoModule.CryptoDigestAlgorithm.SHA256, randomBytes);
   }
   return Math.random().toString(36).substring(2, 15);
 }
