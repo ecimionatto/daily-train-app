@@ -1,0 +1,27 @@
+{
+  "name": "IronCoach Dev",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "bash .devcontainer/setup-git.sh",
+  "postStartCommand": "npm install",
+  "containerEnv": {
+    "GIT_AUTHOR_NAME": "ecimionatto",
+    "GIT_COMMITTER_NAME": "ecimionatto"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "msjsdiag.vscode-react-native"
+      ],
+      "settings": {
+        "git.enableCommitSigning": false
+      }
+    }
+  },
+  "forwardPorts": [8081, 19000, 19001, 19002],
+  "remoteUser": "node"
+}
