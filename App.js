@@ -13,7 +13,9 @@ import DashboardScreen from './screens/DashboardScreen';
 import WorkoutScreen from './screens/WorkoutScreen';
 import RecoveryScreen from './screens/RecoveryScreen';
 import WeeklyScreen from './screens/WeeklyScreen';
+import ChatScreen from './screens/ChatScreen';
 import TabBar from './components/TabBar';
+import { ChatProvider } from './context/ChatContext';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -37,6 +39,7 @@ function MainTabs() {
       <Tab.Screen name="Workout" component={WorkoutScreen} />
       <Tab.Screen name="Recovery" component={RecoveryScreen} />
       <Tab.Screen name="Weekly" component={WeeklyScreen} />
+      <Tab.Screen name="Coach" component={ChatScreen} />
     </Tab.Navigator>
   );
 }
@@ -83,8 +86,10 @@ export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
-        <StatusBar barStyle="light-content" />
-        <AppNavigator />
+        <ChatProvider>
+          <StatusBar barStyle="light-content" />
+          <AppNavigator />
+        </ChatProvider>
       </AppProvider>
     </AuthProvider>
   );

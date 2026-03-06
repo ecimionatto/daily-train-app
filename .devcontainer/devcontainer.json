@@ -7,8 +7,7 @@
   "postCreateCommand": "bash .devcontainer/setup-git.sh",
   "postStartCommand": "npm install",
   "containerEnv": {
-    "GIT_AUTHOR_NAME": "ecimionatto",
-    "GIT_COMMITTER_NAME": "ecimionatto"
+    "GITHUB_ACCOUNT": "personal"
   },
   "customizations": {
     "vscode": {

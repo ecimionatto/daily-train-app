@@ -7,6 +7,7 @@ const TAB_CONFIG = {
   Workout: { label: 'Train', icon: '▶' },
   Recovery: { label: 'Recovery', icon: '♥' },
   Weekly: { label: 'Week', icon: '▦' },
+  Coach: { label: 'Coach', icon: '●' },
 };
 
 export default function TabBar({ state, descriptors, navigation }) {

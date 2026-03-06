@@ -40,6 +40,7 @@ export function AuthProvider({ children }) {
       await AsyncStorage.removeItem('athleteProfile');
       await AsyncStorage.removeItem('todayWorkout');
       await AsyncStorage.removeItem('workoutHistory');
+      await AsyncStorage.removeItem('chatConversation');
       setUser(null);
     } catch (e) {
       console.warn('Failed to sign out:', e);
