@@ -8,7 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
-import { generateDailyWorkout } from '../services/claudeAI';
+import { generateWorkoutLocally } from '../services/localModel';
 
 export default function DashboardScreen({ navigation }) {
   const {
@@ -37,7 +37,7 @@ export default function DashboardScreen({ navigation }) {
   async function fetchWorkout() {
     setLoading(true);
     try {
-      const workout = await generateDailyWorkout({
+      const workout = await generateWorkoutLocally({
         profile: athleteProfile,
         healthData,
         readinessScore,

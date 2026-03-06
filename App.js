@@ -5,7 +5,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
+import LoginScreen from './screens/LoginScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import WorkoutScreen from './screens/WorkoutScreen';
@@ -15,6 +17,18 @@ import TabBar from './components/TabBar';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+const NAV_THEME = {
+  dark: true,
+  colors: {
+    primary: '#e8ff47',
+    background: '#0a0a0f',
+    card: '#0a0a0f',
+    text: '#ffffff',
+    border: '#1a1a2e',
+    notification: '#e8ff47',
+  },
+};
 
 function MainTabs() {
   return (
@@ -30,12 +44,15 @@ function MainTabs() {
   );
 }
 
-export default function App() {
+function AppNavigator() {
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(null);
 
   useEffect(() => {
-    checkOnboarding();
-  }, []);
+    if (isAuthenticated) {
+      checkOnboarding();
+    }
+  }, [isAuthenticated]);
 
   async function checkOnboarding() {
     try {
@@ -46,39 +63,37 @@ export default function App() {
     }
   }
 
-  if (isOnboarded === null) return null; // loading
+  if (authLoading) return null;
 
   return (
-    <AppProvider>
-      <StatusBar barStyle="light-content" />
-      <NavigationContainer
-        theme={{
-          dark: true,
-          colors: {
-            primary: '#e8ff47',
-            background: '#0a0a0f',
-            card: '#0a0a0f',
-            text: '#ffffff',
-            border: '#1a1a2e',
-            notification: '#e8ff47',
-          },
-        }}
-      >
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!isOnboarded ? (
-            <Stack.Screen name="Onboarding">
-              {(props) => (
-                <OnboardingScreen
-                  {...props}
-                  onComplete={() => setIsOnboarded(true)}
-                />
-              )}
-            </Stack.Screen>
-          ) : (
-            <Stack.Screen name="Main" component={MainTabs} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-    </AppProvider>
+    <NavigationContainer theme={NAV_THEME}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {!isAuthenticated ? (
+          <Stack.Screen name="Login" component={LoginScreen} />
+        ) : !isOnboarded ? (
+          <Stack.Screen name="Onboarding">
+            {(props) => (
+              <OnboardingScreen
+                {...props}
+                onComplete={() => setIsOnboarded(true)}
+              />
+            )}
+          </Stack.Screen>
+        ) : (
+          <Stack.Screen name="Main" component={MainTabs} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppProvider>
+        <StatusBar barStyle="light-content" />
+        <AppNavigator />
+      </AppProvider>
+    </AuthProvider>
   );
 }

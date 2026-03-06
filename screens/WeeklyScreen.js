@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '../context/AppContext';
-import { generateWeeklySummary } from '../services/claudeAI';
+import { generateWeeklySummaryLocally } from '../services/localModel';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DISCIPLINES = {
@@ -51,7 +51,7 @@ export default function WeeklyScreen() {
   async function requestWeeklySummary() {
     setLoadingSummary(true);
     try {
-      const summary = await generateWeeklySummary({
+      const summary = await generateWeeklySummaryLocally({
         profile: athleteProfile,
         weekHistory,
         phase: getTrainingPhase(),
