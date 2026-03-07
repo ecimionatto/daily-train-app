@@ -1,6 +1,6 @@
 # Check for potential secrets in staged files
 SECRETS_PATTERN='(ANTHROPIC_API_KEY|GOOGLE_CLIENT_ID|password|secret|token|api.key)\s*=\s*['"'"'"][^YOUR_][^'"'"'"]+['"'"'"]'
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|json|env)$')
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|json|env)$' || true)
 
 if [ -n "$STAGED_FILES" ]; then
   if echo "$STAGED_FILES" | xargs grep -lE "$SECRETS_PATTERN" 2>/dev/null; then
