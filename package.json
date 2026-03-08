@@ -12,6 +12,7 @@
     "format": "prettier --write '**/*.js'",
     "format:check": "prettier --check '**/*.js'",
     "test": "jest",
+    "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "prepare": "husky"
   },
@@ -23,9 +24,32 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "setupFiles": [
+      "./jest.setup.js"
+    ],
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg)"
-    ]
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "__tests__/test-utils.js"
+    ],
+    "collectCoverageFrom": [
+      "services/**/*.js",
+      "context/**/*.js",
+      "screens/**/*.js",
+      "components/**/*.js",
+      "!**/__tests__/**",
+      "!services/claudeAI.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 60,
+        "functions": 60,
+        "lines": 60,
+        "statements": 60
+      }
+    }
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.21.0",
