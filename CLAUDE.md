@@ -1,4 +1,4 @@
-# CLAUDE.md — Agent Instructions for IronCoach
+# CLAUDE.md — Agent Instructions for DailyTrain
 
 ## GitHub Identity
 

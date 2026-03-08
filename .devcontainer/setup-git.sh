@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Git config for IronCoach devcontainer
+# Git config for DailyTrain devcontainer
 # Supports multiple GitHub accounts via GITHUB_ACCOUNT env var
 # Valid values: "personal" (default), "company"
 # ============================================================

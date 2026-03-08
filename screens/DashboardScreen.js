@@ -79,7 +79,7 @@ export default function DashboardScreen({ navigation }) {
       }
     >
       <View style={styles.header}>
-        <Text style={styles.greeting}>IronCoach</Text>
+        <Text style={styles.greeting}>DailyTrain</Text>
         <Text style={styles.phaseLabel}>{phaseLabels[phase] || phase}</Text>
       </View>
 

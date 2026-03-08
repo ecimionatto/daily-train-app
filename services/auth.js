@@ -2,11 +2,11 @@ import { Platform } from 'react-native';
 
 // ============================================
 // Google Sign-In via expo-auth-session
-// Replace YOUR_GOOGLE_CLIENT_ID with your actual
-// Google OAuth client ID from Google Cloud Console
+// Set GOOGLE_CLIENT_ID and GOOGLE_IOS_CLIENT_ID
+// in .env (see .env.example)
 // ============================================
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-const GOOGLE_IOS_CLIENT_ID = 'YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_IOS_CLIENT_ID = process.env.GOOGLE_IOS_CLIENT_ID || '';
 
 let AuthSession = null;
 let AppleAuthentication = null;
@@ -43,7 +43,7 @@ export async function signInWithGoogle() {
     : await AuthSession.fetchDiscoveryAsync('https://accounts.google.com');
 
   const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'com.ironcoach.app',
+    scheme: 'com.dailytrain.app',
     path: 'redirect',
   });
 

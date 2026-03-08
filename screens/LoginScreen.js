@@ -38,14 +38,14 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
-        <Text style={styles.appName}>IronCoach</Text>
+        <Text style={styles.appName}>DailyTrain</Text>
         <Text style={styles.tagline}>AI-powered Ironman training{'\n'}on your iPhone</Text>
       </View>
 
       <View style={styles.features}>
         <Text style={styles.feature}>● Personalized daily workouts from on-device AI</Text>
         <Text style={styles.feature}>● Apple Health integration for smart recovery</Text>
-        <Text style={styles.feature}>● Periodized Ironman training plans</Text>
+        <Text style={styles.feature}>● Workout plans tailored to your goals</Text>
       </View>
 
       <View style={styles.buttons}>

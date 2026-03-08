@@ -1,10 +1,9 @@
 {
   "expo": {
-    "name": "IronCoach",
-    "slug": "ironcoach",
+    "name": "DailyTrain",
+    "slug": "dailytrain",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#0a0a0f"
@@ -12,23 +11,16 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.ironcoach.app",
+      "bundleIdentifier": "com.dailytrain.app",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "IronCoach reads your health data to personalize your training plan.",
-        "NSHealthUpdateUsageDescription": "IronCoach logs workouts to Apple Health."
+        "NSHealthShareUsageDescription": "DailyTrain reads your health data to personalize your training plan.",
+        "NSHealthUpdateUsageDescription": "DailyTrain logs workouts to Apple Health."
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
         "com.apple.developer.healthkit.background-delivery": true
       }
     },
-    "plugins": [
-      [
-        "expo-health",
-        {
-          "iCloudContainerEnvironment": "Production"
-        }
-      ]
-    ]
+    "plugins": []
   }
 }

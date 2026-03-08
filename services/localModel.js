@@ -7,7 +7,7 @@
  *
  * SETUP REQUIRED:
  * 1. Eject from Expo: npx expo prebuild --platform ios
- * 2. Add the llama.cpp Swift bridge (see ios/IronCoach/LlamaModule.swift)
+ * 2. Add the llama.cpp Swift bridge (see ios/DailyTrain/LlamaModule.swift)
  * 3. Download the quantized Qwen 3.5 model (~400MB for Q4_K_M):
  *    https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
  * 4. Place the .gguf file in the app bundle or download on first launch

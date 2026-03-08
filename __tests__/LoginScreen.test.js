@@ -18,7 +18,7 @@ describe('LoginScreen', () => {
   it('renders app name and tagline', () => {
     const { getByText } = renderWithProviders(<LoginScreen />);
 
-    expect(getByText('IronCoach')).toBeTruthy();
+    expect(getByText('DailyTrain')).toBeTruthy();
     expect(getByText('Sign in with Google')).toBeTruthy();
   });
 

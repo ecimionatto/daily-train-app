@@ -21,7 +21,8 @@ android/
 
 # Secrets / environment
 .env
-.env.*
+.env.local
+!.env.example
 secrets.js
 config.local.js
 

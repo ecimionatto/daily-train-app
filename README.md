@@ -1,4 +1,4 @@
-# IronCoach
+# DailyTrain
 
 AI-powered Ironman triathlon training app for iPhone. Generates personalized daily workouts using on-device AI based on your Apple Health data, training phase, and readiness score.
 
@@ -59,7 +59,7 @@ HealthKit requires a physical iPhone + Apple Developer account ($99/year):
 ```bash
 npx expo prebuild --platform ios
 cd ios && pod install && cd ..
-open ios/IronCoach.xcworkspace
+open ios/DailyTrain.xcworkspace
 # Sign with your team → Build to device
 ```
 

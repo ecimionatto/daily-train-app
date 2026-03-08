@@ -27,12 +27,12 @@ describe('DashboardScreen', () => {
     generateWorkoutLocally.mockResolvedValue(mockWorkout);
   });
 
-  it('renders IronCoach header', async () => {
+  it('renders DailyTrain header', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
     const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
-      expect(getByText('IronCoach')).toBeTruthy();
+      expect(getByText('DailyTrain')).toBeTruthy();
     });
   });
 
