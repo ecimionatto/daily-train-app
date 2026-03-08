@@ -83,13 +83,78 @@ export const mockWorkoutHistory = [
   { ...mockWorkout, completedAt: new Date().toISOString(), completedSets: 4, totalSets: 6 },
 ];
 
+const yesterday = new Date();
+yesterday.setDate(yesterday.getDate() - 1);
+
+export const mockWorkoutHistoryWithYesterday = [
+  {
+    ...mockWorkout,
+    completedAt: yesterday.toISOString(),
+    completedSets: 5,
+    totalSets: 6,
+  },
+];
+
+export const mockAlternativeWorkout = {
+  title: 'Endurance Swim',
+  discipline: 'swim',
+  duration: 60,
+  summary: 'Steady aerobic swimming to build endurance and technique.',
+  intensity: 'moderate',
+  sections: [
+    {
+      name: 'Warmup',
+      notes: 'Easy swimming with drill focus.',
+      sets: [
+        { description: '10 min easy free', zone: 1 },
+        { description: '4x50m drill/swim by 25', zone: 2 },
+      ],
+    },
+    {
+      name: 'Main Set',
+      notes: 'Hold steady pace.',
+      sets: [{ description: '30 min steady swimming', zone: 2 }],
+    },
+    {
+      name: 'Cooldown',
+      notes: 'Easy swimming to flush.',
+      sets: [{ description: '6 min easy backstroke', zone: 1 }],
+    },
+  ],
+};
+
+export const mockYesterdayScore = {
+  completionScore: 83,
+  feedback: { label: 'Solid session', message: 'Good work getting through the key sets.' },
+  completedWorkout: {
+    ...mockWorkout,
+    completedSets: 5,
+    totalSets: 6,
+    completedAt: yesterday.toISOString(),
+  },
+};
+
+export const mockOverallReadiness = {
+  overall: 78,
+  health: 82,
+  compliance: 75,
+  racePrep: 72,
+};
+
 // ── Helpers ─────────────────────────────────────────────────
 
 export async function clearAsyncStorage() {
   await AsyncStorage.clear();
 }
 
-export async function seedAsyncStorage({ user, profile, workout, workoutHistory, chatHistory }) {
+export async function seedAsyncStorage({
+  user,
+  profile,
+  workout,
+  workoutHistory,
+  chatHistory,
+  lastGreetingDate,
+}) {
   if (user) await AsyncStorage.setItem('authUser', JSON.stringify(user));
   if (profile) await AsyncStorage.setItem('athleteProfile', JSON.stringify(profile));
   if (workout) {
@@ -103,6 +168,9 @@ export async function seedAsyncStorage({ user, profile, workout, workoutHistory,
   }
   if (chatHistory) {
     await AsyncStorage.setItem('chatConversation', JSON.stringify(chatHistory));
+  }
+  if (lastGreetingDate) {
+    await AsyncStorage.setItem('lastGreetingDate', lastGreetingDate);
   }
 }
 

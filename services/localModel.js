@@ -154,6 +154,249 @@ function readinessMessage(phase) {
 }
 
 /**
+ * Generate an alternative workout with a different discipline.
+ * Priority: weakest discipline (if different), then cycle swim/bike/run.
+ * If readiness < 55 and primary is hard, offer easier version of same sport.
+ */
+export async function generateAlternativeWorkout({
+  profile,
+  healthData,
+  readinessScore,
+  phase,
+  daysToRace,
+  excludeDiscipline,
+}) {
+  if (excludeDiscipline === 'rest' && (readinessScore || 65) < 55) {
+    return null;
+  }
+
+  const altDiscipline = pickAlternativeDiscipline(excludeDiscipline, profile);
+  const systemPrompt = `You are an elite Ironman triathlon coach. Generate a JSON workout.
+This is an ALTERNATIVE workout — the athlete chose not to do ${excludeDiscipline} today.
+Generate a ${altDiscipline} workout instead.
+Respond ONLY with valid JSON matching this structure:
+{"title":"string","discipline":"swim|bike|run|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}`;
+
+  const userPrompt = buildWorkoutUserPrompt(profile, healthData, readinessScore, phase, daysToRace);
+
+  const modelResponse = await runInference(systemPrompt, userPrompt);
+  if (modelResponse) {
+    try {
+      const jsonStr = modelResponse
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      return JSON.parse(jsonStr);
+    } catch {
+      console.warn('Failed to parse alternative workout, using fallback');
+    }
+  }
+
+  const baseDuration = getBaseDuration(phase, profile.weeklyHours);
+  const score = readinessScore || 65;
+  const adjustedDuration =
+    score >= 75 ? Math.round(baseDuration * 1.1) : Math.round(baseDuration * 0.9);
+  return buildWorkout(altDiscipline, adjustedDuration, score, phase, profile);
+}
+
+/**
+ * Pick the best alternative discipline, avoiding the excluded one.
+ */
+function pickAlternativeDiscipline(excludeDiscipline, profile) {
+  const weak = profile.weakestDiscipline?.toLowerCase() || 'swim';
+  const triDisciplines = ['swim', 'bike', 'run'];
+  if (weak !== excludeDiscipline && triDisciplines.includes(weak)) {
+    return weak;
+  }
+  const remaining = triDisciplines.filter((d) => d !== excludeDiscipline);
+  return remaining[0] || 'swim';
+}
+
+/**
+ * Generate a replacement workout based on the athlete's reason for swapping.
+ * Parses the reason to determine constraints (injury, fatigue, time).
+ */
+export async function generateReplacementWorkout({
+  profile,
+  healthData,
+  readinessScore,
+  phase,
+  daysToRace,
+  reason,
+}) {
+  const constraints = inferReplacementParams(reason);
+
+  const systemPrompt = `You are an elite Ironman triathlon coach. Generate a JSON workout.
+The athlete requested a workout change because: "${reason}"
+${constraints.excludeDisciplines.length > 0 ? `AVOID these disciplines: ${constraints.excludeDisciplines.join(', ')}` : ''}
+${constraints.maxIntensity ? `Maximum intensity: ${constraints.maxIntensity}` : ''}
+${constraints.maxDuration ? `Maximum duration: ${constraints.maxDuration} minutes` : ''}
+Respond ONLY with valid JSON matching this structure:
+{"title":"string","discipline":"swim|bike|run|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}`;
+
+  const userPrompt = buildWorkoutUserPrompt(profile, healthData, readinessScore, phase, daysToRace);
+
+  const modelResponse = await runInference(systemPrompt, userPrompt);
+  if (modelResponse) {
+    try {
+      const jsonStr = modelResponse
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      return JSON.parse(jsonStr);
+    } catch {
+      console.warn('Failed to parse replacement workout, using fallback');
+    }
+  }
+
+  return generateRuleBasedReplacement({ profile, readinessScore, phase, constraints });
+}
+
+/**
+ * Parse reason text to determine workout constraints.
+ */
+function inferReplacementParams(reason) {
+  const lower = (reason || '').toLowerCase();
+  const excludeDisciplines = [];
+  let maxIntensity = null;
+  let maxDuration = null;
+
+  if (
+    lower.includes('knee') ||
+    lower.includes('ankle') ||
+    lower.includes('shin') ||
+    lower.includes('foot')
+  ) {
+    excludeDisciplines.push('run');
+  }
+  if (lower.includes('shoulder') || lower.includes('arm')) {
+    excludeDisciplines.push('swim');
+  }
+  if (lower.includes('back') || lower.includes('saddle') || lower.includes('seat')) {
+    excludeDisciplines.push('bike');
+  }
+
+  if (
+    lower.includes('tired') ||
+    lower.includes('exhaust') ||
+    lower.includes('fatigue') ||
+    lower.includes('sore')
+  ) {
+    maxIntensity = 'easy';
+  }
+  if (
+    lower.includes('short') ||
+    lower.includes('time') ||
+    lower.includes('busy') ||
+    lower.includes('quick')
+  ) {
+    maxDuration = 30;
+  }
+
+  return { excludeDisciplines, maxIntensity, maxDuration };
+}
+
+function generateRuleBasedReplacement({ profile, readinessScore, phase, constraints }) {
+  const score = readinessScore || 65;
+  const triDisciplines = ['swim', 'bike', 'run', 'strength'];
+  const available = triDisciplines.filter((d) => !constraints.excludeDisciplines.includes(d));
+  const discipline = available[0] || 'rest';
+
+  if (score < 55 || constraints.maxIntensity === 'easy') {
+    const duration = constraints.maxDuration || 30;
+    return buildWorkout('rest', duration, score, phase, profile);
+  }
+
+  const baseDuration = getBaseDuration(phase, profile.weeklyHours);
+  const duration = constraints.maxDuration
+    ? Math.min(baseDuration, constraints.maxDuration)
+    : baseDuration;
+  return buildWorkout(discipline, duration, score, phase, profile);
+}
+
+/**
+ * Generate a weekly plan adjustment evaluating the past week.
+ * Returns text advice about what to focus on next week.
+ */
+export async function generateWeeklyPlanAdjustment({
+  profile,
+  weekHistory,
+  phase,
+  daysToRace,
+  complianceScore,
+}) {
+  const workoutList = (weekHistory || [])
+    .map(
+      (w) =>
+        `${w.discipline}: ${w.title} (${w.duration}min, ${w.completedSets}/${w.totalSets} sets)`
+    )
+    .join(', ');
+
+  const systemPrompt = `You are an elite Ironman coach. Review the athlete's past week and give a 2-3 paragraph adjustment plan for next week. Be specific about what to change. Plain text only.`;
+  const userPrompt = `Athlete: ${profile.level}, ${profile.distance}, phase: ${phase}, ${daysToRace ?? 'N/A'} days to race, compliance: ${complianceScore ?? 'N/A'}%.
+This week: ${workoutList || 'no workouts completed'}, sessions: ${(weekHistory || []).length}.`;
+
+  const modelResponse = await runInference(systemPrompt, userPrompt);
+  if (modelResponse) return modelResponse;
+
+  return generateFallbackWeeklyAdjustment(weekHistory, phase, complianceScore);
+}
+
+function generateFallbackWeeklyAdjustment(weekHistory, phase, complianceScore) {
+  const sessions = (weekHistory || []).length;
+  const compliance = complianceScore ?? 0;
+
+  const disciplines = {};
+  (weekHistory || []).forEach((w) => {
+    const d = w.discipline?.toLowerCase() || 'other';
+    disciplines[d] = (disciplines[d] || 0) + 1;
+  });
+
+  const parts = [];
+  if (sessions === 0) {
+    parts.push(
+      "You had no completed workouts this week. Consistency is the most important factor in Ironman training. Let's aim for at least 4-5 sessions next week."
+    );
+  } else {
+    parts.push(`You completed ${sessions} sessions this week with ${compliance}% compliance.`);
+    if (compliance >= 85) {
+      parts.push('Excellent consistency! Next week, maintain this rhythm.');
+    } else if (compliance >= 60) {
+      parts.push('Decent effort, but aim to complete more of each session fully.');
+    } else {
+      parts.push(
+        'Completion was low — consider if the workouts are too intense or if scheduling needs adjustment.'
+      );
+    }
+  }
+
+  const hasBike = disciplines.bike || 0;
+  const hasSwim = disciplines.swim || 0;
+  const hasRun = disciplines.run || 0;
+  if (hasBike === 0) parts.push('No bike sessions — add at least one next week.');
+  if (hasSwim === 0)
+    parts.push('No swim sessions — swimming is critical for Ironman. Add at least one.');
+  if (hasRun === 0) parts.push('No run sessions — get at least one run in next week.');
+
+  const phaseMessages = {
+    BASE: 'Focus on Zone 2 volume and building consistency.',
+    BUILD: 'Add one quality interval session per discipline.',
+    PEAK: 'This is your biggest training week — push but recover well.',
+    TAPER: 'Volume drops but keep intensity sharp. Trust the taper.',
+    RACE_WEEK: 'Easy movement only. Stay calm, visualize the race.',
+  };
+  parts.push(phaseMessages[phase] || phaseMessages.BASE);
+
+  return parts.join(' ');
+}
+
+function buildWorkoutUserPrompt(profile, healthData, readinessScore, phase, daysToRace) {
+  return `Athlete: ${profile.level}, ${profile.distance}, weekly hrs: ${profile.weeklyHours}, strongest: ${profile.strongestDiscipline}, weakest: ${profile.weakestDiscipline}, injuries: ${profile.injuries}, goal: ${profile.goalTime}.
+Status: phase=${phase}, days to race=${daysToRace}, readiness=${readinessScore}/100, RHR=${healthData?.restingHR || 'N/A'}bpm, HRV=${healthData?.hrv || 'N/A'}ms, sleep=${healthData?.sleepHours?.toFixed(1) || 'N/A'}h.
+Day: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}.`;
+}
+
+/**
  * Rule-based workout generator — works without any model.
  * Uses readiness score, training phase, day of week, and athlete profile
  * to construct a structured workout.

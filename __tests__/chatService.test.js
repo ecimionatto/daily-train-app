@@ -2,9 +2,19 @@ import {
   classifyMessage,
   generateFallbackResponse,
   buildCoachSystemPrompt,
+  isOffTopic,
+  getOffTopicResponse,
+  buildConversationSummary,
+  generateFallbackGreeting,
 } from '../services/chatService';
 
 describe('classifyMessage', () => {
+  it('classifies workout swap requests', () => {
+    expect(classifyMessage('Give me a different workout')).toBe('workout_swap');
+    expect(classifyMessage("I can't do this today")).toBe('workout_swap');
+    expect(classifyMessage('I want another workout')).toBe('workout_swap');
+  });
+
   it('classifies workout modification requests', () => {
     expect(classifyMessage('Can I make today easier?')).toBe('workout_modification');
     expect(classifyMessage('I want to skip the swim')).toBe('workout_modification');
@@ -38,6 +48,119 @@ describe('classifyMessage', () => {
   });
 });
 
+describe('isOffTopic', () => {
+  it('returns false for training-related messages', () => {
+    expect(isOffTopic('How should I pace my run?')).toBe(false);
+    expect(isOffTopic('What should I eat before the race?')).toBe(false);
+    expect(isOffTopic('My HRV is low today')).toBe(false);
+    expect(isOffTopic('Can I modify my workout?')).toBe(false);
+  });
+
+  it('returns true for off-topic messages', () => {
+    expect(isOffTopic('What is the capital of France?')).toBe(true);
+    expect(isOffTopic('Write me a poem about cats')).toBe(true);
+    expect(isOffTopic('How do I fix my car engine?')).toBe(true);
+  });
+
+  it('returns false for greetings and basic interactions', () => {
+    expect(isOffTopic('Hello')).toBe(false);
+    expect(isOffTopic('Thanks')).toBe(false);
+    expect(isOffTopic('Hi coach')).toBe(false);
+  });
+});
+
+describe('getOffTopicResponse', () => {
+  it('returns a standard decline message', () => {
+    const response = getOffTopicResponse();
+    expect(response).toContain('triathlon coach');
+    expect(response).toContain('training');
+  });
+});
+
+describe('buildConversationSummary', () => {
+  it('returns empty string for empty messages', () => {
+    expect(buildConversationSummary([])).toBe('');
+    expect(buildConversationSummary(null)).toBe('');
+  });
+
+  it('includes topic categories from message history', () => {
+    const messages = [
+      {
+        role: 'athlete',
+        content: 'How is my recovery looking?',
+        timestamp: new Date().toISOString(),
+      },
+      { role: 'coach', content: 'Your HRV is good.', timestamp: new Date().toISOString() },
+      { role: 'athlete', content: 'What should I eat?', timestamp: new Date().toISOString() },
+      { role: 'coach', content: 'Focus on carbs.', timestamp: new Date().toISOString() },
+    ];
+    const summary = buildConversationSummary(messages);
+    expect(summary).toContain('recovery');
+    expect(summary).toContain('nutrition');
+  });
+
+  it('includes recent messages verbatim', () => {
+    const messages = [
+      {
+        role: 'athlete',
+        content: 'My specific question here',
+        timestamp: new Date().toISOString(),
+      },
+      { role: 'coach', content: 'My specific answer here', timestamp: new Date().toISOString() },
+    ];
+    const summary = buildConversationSummary(messages);
+    expect(summary).toContain('My specific question here');
+    expect(summary).toContain('My specific answer here');
+  });
+});
+
+describe('generateFallbackGreeting', () => {
+  it('includes yesterday score when available', () => {
+    const context = {
+      yesterdayScore: {
+        completionScore: 85,
+        feedback: { label: 'Solid session', message: 'Good work.' },
+      },
+      todayWorkout: { title: 'Tempo Run', discipline: 'run', duration: 60 },
+      daysToRace: 45,
+      readinessScore: 72,
+      phase: 'BUILD',
+    };
+    const greeting = generateFallbackGreeting(context);
+    expect(greeting).toContain('85%');
+  });
+
+  it('includes today workout info', () => {
+    const context = {
+      yesterdayScore: null,
+      todayWorkout: { title: 'Zone 2 Ride', discipline: 'bike', duration: 70 },
+      daysToRace: 45,
+      readinessScore: 72,
+      phase: 'BUILD',
+    };
+    const greeting = generateFallbackGreeting(context);
+    expect(greeting).toContain('Zone 2 Ride');
+  });
+
+  it('includes race countdown', () => {
+    const context = {
+      yesterdayScore: null,
+      todayWorkout: null,
+      daysToRace: 30,
+      readinessScore: 72,
+      phase: 'PEAK',
+    };
+    const greeting = generateFallbackGreeting(context);
+    expect(greeting).toContain('30 days');
+  });
+
+  it('returns default when all context is empty', () => {
+    const context = {};
+    const greeting = generateFallbackGreeting(context);
+    expect(greeting.length).toBeGreaterThan(0);
+  });
+});
+
 describe('generateFallbackResponse', () => {
   const context = {
     readinessScore: 72,
@@ -56,6 +179,7 @@ describe('generateFallbackResponse', () => {
     const categories = [
       'training_plan',
       'workout_modification',
+      'workout_swap',
       'recovery',
       'nutrition',
       'race_strategy',
@@ -112,5 +236,40 @@ describe('buildCoachSystemPrompt', () => {
     const prompt = buildCoachSystemPrompt({});
     expect(prompt).toContain('Full Ironman');
     expect(prompt).toContain('N/A');
+  });
+
+  it('includes off-topic guard instruction', () => {
+    const prompt = buildCoachSystemPrompt({});
+    expect(prompt).toContain('ONLY a triathlon coach');
+  });
+
+  it('includes workout history when provided', () => {
+    const context = {
+      athleteProfile: {},
+      workoutHistory: [{ discipline: 'run', title: 'Easy Run', completedSets: 5, totalSets: 6 }],
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('RECENT WORKOUT HISTORY');
+    expect(prompt).toContain('Easy Run');
+  });
+
+  it('includes yesterday score when provided', () => {
+    const context = {
+      athleteProfile: {},
+      yesterdayScore: { completionScore: 80, feedback: { label: 'Solid session' } },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('YESTERDAY');
+    expect(prompt).toContain('80');
+  });
+
+  it('includes overall readiness breakdown when provided', () => {
+    const context = {
+      athleteProfile: {},
+      overallReadiness: { overall: 75, health: 80, compliance: 70, racePrep: 72 },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('OVERALL READINESS BREAKDOWN');
+    expect(prompt).toContain('75');
   });
 });

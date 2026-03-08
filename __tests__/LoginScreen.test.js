@@ -57,6 +57,6 @@ describe('LoginScreen', () => {
 
     expect(getByText(/Personalized daily workouts/)).toBeTruthy();
     expect(getByText(/Apple Health integration/)).toBeTruthy();
-    expect(getByText(/Periodized Ironman training/)).toBeTruthy();
+    expect(getByText(/Workout plans tailored/)).toBeTruthy();
   });
 });

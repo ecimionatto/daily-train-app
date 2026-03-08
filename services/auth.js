@@ -2,11 +2,11 @@ import { Platform } from 'react-native';
 
 // ============================================
 // Google Sign-In via expo-auth-session
-// Set GOOGLE_CLIENT_ID and GOOGLE_IOS_CLIENT_ID
+// Set EXPO_PUBLIC_GOOGLE_CLIENT_ID and EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
 // in .env (see .env.example)
 // ============================================
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const GOOGLE_IOS_CLIENT_ID = process.env.GOOGLE_IOS_CLIENT_ID || '';
+const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
 
 let AuthSession = null;
 let AppleAuthentication = null;

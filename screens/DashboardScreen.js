@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useApp } from '../context/AppContext';
-import { generateWorkoutLocally } from '../services/localModel';
+import { useChat } from '../context/ChatContext';
+import { generateWorkoutLocally, generateAlternativeWorkout } from '../services/localModel';
 
 export default function DashboardScreen({ navigation }) {
   const {
@@ -13,13 +14,22 @@ export default function DashboardScreen({ navigation }) {
     loadHealthData,
     getTrainingPhase,
     getDaysToRace,
+    alternativeWorkout,
+    saveAlternativeWorkout,
+    yesterdayScore,
+    overallReadiness,
+    swapTodayWorkout,
   } = useApp();
+
+  const { messages } = useChat();
 
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAltDetails, setShowAltDetails] = useState(false);
 
   const daysToRace = getDaysToRace();
   const phase = getTrainingPhase();
+  const displayScore = overallReadiness?.overall ?? readinessScore;
 
   useEffect(() => {
     if (!todayWorkout && healthData && athleteProfile) {
@@ -31,14 +41,23 @@ export default function DashboardScreen({ navigation }) {
   async function fetchWorkout() {
     setLoading(true);
     try {
-      const workout = await generateWorkoutLocally({
+      const params = {
         profile: athleteProfile,
         healthData,
         readinessScore,
         phase,
         daysToRace,
-      });
+      };
+      const workout = await generateWorkoutLocally(params);
       await saveTodayWorkout(workout);
+
+      if (workout.discipline !== 'rest' || (readinessScore || 65) >= 55) {
+        const alt = await generateAlternativeWorkout({
+          ...params,
+          excludeDiscipline: workout.discipline,
+        });
+        if (alt) saveAlternativeWorkout(alt);
+      }
     } catch (e) {
       console.warn('Failed to generate workout:', e);
     }
@@ -51,16 +70,22 @@ export default function DashboardScreen({ navigation }) {
     setRefreshing(false);
   }
 
-  function getReadinessColor(score) {
-    if (score >= 75) return '#47ffb2';
-    if (score >= 55) return '#e8ff47';
-    return '#ff6b6b';
+  async function handleSwitchWorkout() {
+    if (!alternativeWorkout) return;
+    const oldMain = todayWorkout;
+    await swapTodayWorkout(alternativeWorkout);
+    saveAlternativeWorkout(oldMain);
+    setShowAltDetails(false);
   }
 
-  function getReadinessLabel(score) {
-    if (score >= 75) return 'READY TO PUSH';
-    if (score >= 55) return 'MODERATE EFFORT';
-    return 'RECOVERY DAY';
+  function getLatestCoachNote() {
+    if (!messages || messages.length === 0) return null;
+    const proactive = [...messages]
+      .reverse()
+      .find((m) => m.metadata?.proactive || m.metadata?.weeklyReview);
+    if (proactive) return proactive.content;
+    const lastCoach = [...messages].reverse().find((m) => m.role === 'coach');
+    return lastCoach?.content || null;
   }
 
   const phaseLabels = {
@@ -91,20 +116,29 @@ export default function DashboardScreen({ navigation }) {
         </View>
       )}
 
-      {/* Readiness Score */}
-      {readinessScore !== null && (
+      {/* Overall Readiness Score */}
+      {displayScore !== null && (
         <View style={styles.readinessCard}>
           <View style={styles.readinessRow}>
-            <Text style={[styles.readinessScore, { color: getReadinessColor(readinessScore) }]}>
-              {readinessScore}
+            <Text style={[styles.readinessScore, { color: getReadinessColor(displayScore) }]}>
+              {displayScore}
             </Text>
             <View style={styles.readinessInfo}>
-              <Text style={styles.readinessTitle}>READINESS</Text>
-              <Text style={[styles.readinessLabel, { color: getReadinessColor(readinessScore) }]}>
-                {getReadinessLabel(readinessScore)}
+              <Text style={styles.readinessTitle}>OVERALL READINESS</Text>
+              <Text style={[styles.readinessLabel, { color: getReadinessColor(displayScore) }]}>
+                {getReadinessLabel(displayScore)}
               </Text>
             </View>
           </View>
+
+          {/* Sub-scores */}
+          {overallReadiness && (
+            <View style={styles.subScoreRow}>
+              <SubScore label="HEALTH" value={overallReadiness.health} />
+              <SubScore label="TRAINING" value={overallReadiness.compliance} />
+              <SubScore label="RACE PREP" value={overallReadiness.racePrep} />
+            </View>
+          )}
 
           {healthData && (
             <View style={styles.metricsRow}>
@@ -125,7 +159,35 @@ export default function DashboardScreen({ navigation }) {
         </View>
       )}
 
-      {/* Today's Workout Preview */}
+      {/* Yesterday's Score */}
+      {yesterdayScore && (
+        <View style={styles.yesterdayCard}>
+          <Text style={styles.sectionTitle}>{"YESTERDAY'S SESSION"}</Text>
+          <View style={styles.yesterdayRow}>
+            <Text
+              style={[
+                styles.yesterdayScore,
+                { color: getScoreColor(yesterdayScore.completionScore) },
+              ]}
+            >
+              {yesterdayScore.completionScore}%
+            </Text>
+            <View style={styles.yesterdayInfo}>
+              <Text style={styles.yesterdayLabel}>{yesterdayScore.feedback?.label}</Text>
+              <Text style={styles.yesterdayDetail}>
+                {yesterdayScore.completedWorkout?.title} —{' '}
+                {yesterdayScore.completedWorkout?.completedSets}/
+                {yesterdayScore.completedWorkout?.totalSets} sets
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Coach Note */}
+      {renderCoachNote(getLatestCoachNote(), navigation)}
+
+      {/* Today's Workout - Full Details */}
       <View style={styles.workoutCard}>
         <Text style={styles.sectionTitle}>{"TODAY'S SESSION"}</Text>
         {loading ? (
@@ -133,14 +195,21 @@ export default function DashboardScreen({ navigation }) {
         ) : todayWorkout ? (
           <>
             <Text style={styles.workoutTitle}>{todayWorkout.title}</Text>
-            <Text style={styles.workoutDiscipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
-            <Text style={styles.workoutDuration}>{todayWorkout.duration} min</Text>
+            <View style={styles.workoutMeta}>
+              <Text style={styles.workoutDiscipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
+              <Text style={styles.workoutDuration}>{todayWorkout.duration} min</Text>
+              <Text style={styles.workoutIntensity}>{todayWorkout.intensity?.toUpperCase()}</Text>
+            </View>
             <Text style={styles.workoutDescription}>{todayWorkout.summary}</Text>
+
+            {/* Inline sections/sets */}
+            {renderWorkoutSections(todayWorkout)}
+
             <TouchableOpacity
               style={styles.startButton}
               onPress={() => navigation.navigate('Workout')}
             >
-              <Text style={styles.startButtonText}>VIEW FULL WORKOUT</Text>
+              <Text style={styles.startButtonText}>START WORKOUT</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -149,8 +218,94 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Alternative Workout */}
+      {alternativeWorkout && todayWorkout && (
+        <View style={styles.altCard}>
+          <Text style={styles.sectionTitle}>ALTERNATIVE OPTION</Text>
+          <Text style={styles.altTitle}>{alternativeWorkout.title}</Text>
+          <View style={styles.workoutMeta}>
+            <Text style={styles.altDiscipline}>{alternativeWorkout.discipline?.toUpperCase()}</Text>
+            <Text style={styles.altDuration}>{alternativeWorkout.duration} min</Text>
+          </View>
+          <Text style={styles.altSummary}>{alternativeWorkout.summary}</Text>
+
+          {showAltDetails && renderWorkoutSections(alternativeWorkout)}
+
+          <View style={styles.altButtons}>
+            <TouchableOpacity style={styles.switchButton} onPress={handleSwitchWorkout}>
+              <Text style={styles.switchButtonText}>SWITCH TO THIS</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.detailsButton}
+              onPress={() => setShowAltDetails(!showAltDetails)}
+            >
+              <Text style={styles.detailsButtonText}>
+                {showAltDetails ? 'HIDE DETAILS' : 'VIEW DETAILS'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
+}
+
+function SubScore({ label, value }) {
+  return (
+    <View style={styles.subScoreItem}>
+      <Text style={[styles.subScoreValue, { color: getReadinessColor(value) }]}>{value}</Text>
+      <Text style={styles.subScoreLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function renderCoachNote(note, navigation) {
+  if (!note) return null;
+  const truncated = note.length > 200 ? note.substring(0, 200) + '...' : note;
+  return (
+    <TouchableOpacity style={styles.coachNoteCard} onPress={() => navigation.navigate('Coach')}>
+      <Text style={styles.sectionTitle}>{"COACH'S NOTE"}</Text>
+      <Text style={styles.coachNoteText}>{truncated}</Text>
+      <Text style={styles.coachNoteTap}>Tap to chat with coach</Text>
+    </TouchableOpacity>
+  );
+}
+
+function renderWorkoutSections(workout) {
+  if (!workout?.sections) return null;
+  return workout.sections.map((section, sIdx) => (
+    <View key={sIdx} style={styles.inlineSection}>
+      <Text style={styles.inlineSectionTitle}>{section.name?.toUpperCase()}</Text>
+      {section.notes && <Text style={styles.inlineSectionNotes}>{section.notes}</Text>}
+      {section.sets?.map((set, setIdx) => (
+        <View key={setIdx} style={styles.inlineSet}>
+          <Text style={styles.inlineSetDesc}>{set.description}</Text>
+          {set.zone && <Text style={styles.inlineSetZone}>Zone {set.zone}</Text>}
+        </View>
+      ))}
+    </View>
+  ));
+}
+
+function getReadinessColor(score) {
+  if (score >= 75) return '#47ffb2';
+  if (score >= 55) return '#e8ff47';
+  return '#ff6b6b';
+}
+
+function getReadinessLabel(score) {
+  if (score >= 75) return 'READY TO PUSH';
+  if (score >= 55) return 'MODERATE EFFORT';
+  return 'RECOVERY DAY';
+}
+
+function getScoreColor(score) {
+  if (score >= 75) return '#47ffb2';
+  if (score >= 50) return '#e8ff47';
+  return '#ff6b6b';
 }
 
 const styles = StyleSheet.create({
@@ -224,6 +379,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
+  subScoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a3e',
+  },
+  subScoreItem: {
+    alignItems: 'center',
+  },
+  subScoreValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  subScoreLabel: {
+    color: '#888',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginTop: 4,
+  },
   metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -246,11 +423,61 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: 4,
   },
+  yesterdayCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+  },
+  yesterdayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  yesterdayScore: {
+    fontSize: 32,
+    fontWeight: '900',
+    marginRight: 16,
+  },
+  yesterdayInfo: {
+    flex: 1,
+  },
+  yesterdayLabel: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  yesterdayDetail: {
+    color: '#888',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  coachNoteCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#e8ff47',
+  },
+  coachNoteText: {
+    color: '#ccc',
+    fontSize: 14,
+    lineHeight: 21,
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  coachNoteTap: {
+    color: '#e8ff47',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 10,
+  },
   workoutCard: {
     backgroundColor: '#1a1a2e',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 100,
+    marginBottom: 16,
   },
   sectionTitle: {
     color: '#888',
@@ -269,19 +496,29 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 22,
     fontWeight: '800',
-    marginBottom: 4,
+    marginBottom: 8,
+  },
+  workoutMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
   },
   workoutDiscipline: {
     color: '#47b2ff',
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 1,
-    marginBottom: 8,
   },
   workoutDuration: {
     color: '#888',
     fontSize: 14,
-    marginBottom: 8,
+  },
+  workoutIntensity: {
+    color: '#e8ff47',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   workoutDescription: {
     color: '#ccc',
@@ -289,11 +526,48 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
+  inlineSection: {
+    marginBottom: 16,
+  },
+  inlineSectionTitle: {
+    color: '#e8ff47',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginBottom: 6,
+  },
+  inlineSectionNotes: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  inlineSet: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#12121f',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  inlineSetDesc: {
+    color: '#ddd',
+    fontSize: 14,
+    flex: 1,
+  },
+  inlineSetZone: {
+    color: '#47b2ff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
   startButton: {
     backgroundColor: '#e8ff47',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+    marginTop: 4,
   },
   startButtonText: {
     color: '#0a0a0f',
@@ -311,6 +585,68 @@ const styles = StyleSheet.create({
   generateButtonText: {
     color: '#e8ff47',
     fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  altCard: {
+    backgroundColor: '#151520',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2a2a3e',
+  },
+  altTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  altDiscipline: {
+    color: '#47b2ff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  altDuration: {
+    color: '#888',
+    fontSize: 14,
+  },
+  altSummary: {
+    color: '#aaa',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  altButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  switchButton: {
+    flex: 1,
+    backgroundColor: '#e8ff47',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  switchButtonText: {
+    color: '#0a0a0f',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  detailsButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e8ff47',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  detailsButtonText: {
+    color: '#e8ff47',
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1,
   },

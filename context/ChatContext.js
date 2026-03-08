@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCoachResponse } from '../services/chatService';
+import {
+  getCoachResponse,
+  buildConversationSummary,
+  generateProactiveGreeting,
+  generateWeeklyReview,
+} from '../services/chatService';
 import { useApp } from './AppContext';
 
 const ChatContext = createContext();
@@ -15,6 +20,9 @@ export function useChat() {
 export function ChatProvider({ children }) {
   const [messages, setMessages] = useState([]);
   const [isResponding, setIsResponding] = useState(false);
+  const [hasGreetedToday, setHasGreetedToday] = useState(false);
+  const [hasReviewedThisWeek, setHasReviewedThisWeek] = useState(false);
+
   const {
     athleteProfile,
     healthData,
@@ -22,11 +30,33 @@ export function ChatProvider({ children }) {
     getTrainingPhase,
     getDaysToRace,
     todayWorkout,
+    yesterdayScore,
+    overallReadiness,
+    workoutHistory,
+    swapTodayWorkout,
   } = useApp();
 
   useEffect(() => {
     loadConversation();
+    checkGreetingStatus();
+    checkWeeklyReviewStatus();
   }, []);
+
+  // Proactive greeting trigger
+  useEffect(() => {
+    if (todayWorkout && !hasGreetedToday && athleteProfile) {
+      sendProactiveGreeting();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayWorkout, hasGreetedToday, athleteProfile]);
+
+  // Weekly review trigger (Sunday evening)
+  useEffect(() => {
+    if (!hasReviewedThisWeek && workoutHistory.length > 0 && athleteProfile) {
+      checkAndSendWeeklyReview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasReviewedThisWeek, workoutHistory, athleteProfile]);
 
   async function loadConversation() {
     try {
@@ -44,6 +74,123 @@ export function ChatProvider({ children }) {
     } catch (e) {
       console.warn('Failed to save chat history:', e);
     }
+  }
+
+  async function checkGreetingStatus() {
+    try {
+      const lastGreeted = await AsyncStorage.getItem('lastGreetingDate');
+      const today = new Date().toDateString();
+      if (lastGreeted === today) {
+        setHasGreetedToday(true);
+      }
+    } catch (e) {
+      console.warn('Failed to check greeting status:', e);
+    }
+  }
+
+  async function checkWeeklyReviewStatus() {
+    try {
+      const lastReview = await AsyncStorage.getItem('lastWeeklyReviewDate');
+      if (lastReview) {
+        const reviewDate = new Date(lastReview);
+        const now = new Date();
+        const daysSince = Math.floor((now - reviewDate) / (24 * 60 * 60 * 1000));
+        if (daysSince < 7) {
+          setHasReviewedThisWeek(true);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to check weekly review status:', e);
+    }
+  }
+
+  async function sendProactiveGreeting() {
+    const lastGreeted = await AsyncStorage.getItem('lastGreetingDate');
+    const today = new Date().toDateString();
+    if (lastGreeted === today) {
+      setHasGreetedToday(true);
+      return;
+    }
+
+    try {
+      const context = buildFullContext();
+      const greeting = await generateProactiveGreeting(context);
+
+      const greetingMessage = {
+        id: `msg_${Date.now()}_proactive`,
+        role: 'coach',
+        content: greeting,
+        timestamp: new Date().toISOString(),
+        metadata: { proactive: true, phase: getTrainingPhase(), readinessScore },
+      };
+
+      setMessages((prev) => {
+        const updated = [...prev, greetingMessage];
+        persistMessages(updated);
+        return updated;
+      });
+      await AsyncStorage.setItem('lastGreetingDate', today);
+      setHasGreetedToday(true);
+    } catch (e) {
+      console.warn('Failed to send proactive greeting:', e);
+      setHasGreetedToday(true);
+    }
+  }
+
+  async function checkAndSendWeeklyReview() {
+    const now = new Date();
+    if (now.getDay() !== 0 || now.getHours() < 18) return;
+
+    const lastReview = await AsyncStorage.getItem('lastWeeklyReviewDate');
+    if (lastReview) {
+      const daysSince = Math.floor((now - new Date(lastReview)) / (24 * 60 * 60 * 1000));
+      if (daysSince < 7) {
+        setHasReviewedThisWeek(true);
+        return;
+      }
+    }
+
+    try {
+      const context = buildFullContext();
+      const review = await generateWeeklyReview(context);
+
+      const reviewMessage = {
+        id: `msg_${Date.now()}_weekly_review`,
+        role: 'coach',
+        content: review,
+        timestamp: new Date().toISOString(),
+        metadata: { weeklyReview: true, phase: getTrainingPhase(), readinessScore },
+      };
+
+      setMessages((prev) => {
+        const updated = [...prev, reviewMessage];
+        persistMessages(updated);
+        return updated;
+      });
+      await AsyncStorage.setItem('lastWeeklyReviewDate', now.toISOString());
+      setHasReviewedThisWeek(true);
+    } catch (e) {
+      console.warn('Failed to send weekly review:', e);
+      setHasReviewedThisWeek(true);
+    }
+  }
+
+  function buildFullContext() {
+    const phase = getTrainingPhase();
+    const daysToRace = getDaysToRace();
+    return {
+      athleteProfile,
+      healthData,
+      readinessScore,
+      phase,
+      daysToRace,
+      todayWorkout,
+      yesterdayScore,
+      overallReadiness,
+      workoutHistory: (workoutHistory || []).slice(-14),
+      conversationSummary: buildConversationSummary(messages),
+      onWorkoutSwap: swapTodayWorkout,
+    };
   }
 
   const sendMessage = useCallback(
@@ -73,6 +220,11 @@ export function ChatProvider({ children }) {
           phase,
           daysToRace,
           todayWorkout,
+          yesterdayScore,
+          overallReadiness,
+          workoutHistory: (workoutHistory || []).slice(-14),
+          conversationSummary: buildConversationSummary(updatedMessages),
+          onWorkoutSwap: swapTodayWorkout,
         };
         const responseText = await getCoachResponse(text.trim(), context, updatedMessages);
 
@@ -110,6 +262,10 @@ export function ChatProvider({ children }) {
       healthData,
       readinessScore,
       todayWorkout,
+      yesterdayScore,
+      overallReadiness,
+      workoutHistory,
+      swapTodayWorkout,
       getTrainingPhase,
       getDaysToRace,
     ]
@@ -129,6 +285,7 @@ export function ChatProvider({ children }) {
     isResponding,
     sendMessage,
     clearConversation,
+    hasGreetedToday,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

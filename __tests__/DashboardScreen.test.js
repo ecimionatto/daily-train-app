@@ -2,7 +2,7 @@ import React from 'react';
 import { waitFor } from '@testing-library/react-native';
 import DashboardScreen from '../screens/DashboardScreen';
 import { fetchHealthData, calculateReadiness } from '../services/healthKit';
-import { generateWorkoutLocally } from '../services/localModel';
+import { generateWorkoutLocally, generateAlternativeWorkout } from '../services/localModel';
 import {
   clearAsyncStorage,
   seedAsyncStorage,
@@ -10,11 +10,19 @@ import {
   mockProfile,
   mockHealthData,
   mockWorkout,
+  mockAlternativeWorkout,
+  mockWorkoutHistoryWithYesterday,
   renderWithProviders,
 } from './test-utils';
 
 jest.mock('../services/healthKit');
 jest.mock('../services/localModel');
+jest.mock('../services/chatService', () => ({
+  getCoachResponse: jest.fn().mockResolvedValue('Coach response'),
+  buildConversationSummary: jest.fn().mockReturnValue(''),
+  generateProactiveGreeting: jest.fn().mockResolvedValue('Good morning! Great job yesterday.'),
+  generateWeeklyReview: jest.fn().mockResolvedValue('Weekly review text'),
+}));
 
 describe('DashboardScreen', () => {
   const mockNavigation = { navigate: jest.fn() };
@@ -25,30 +33,36 @@ describe('DashboardScreen', () => {
     fetchHealthData.mockResolvedValue(mockHealthData);
     calculateReadiness.mockReturnValue(72);
     generateWorkoutLocally.mockResolvedValue(mockWorkout);
+    generateAlternativeWorkout.mockResolvedValue(mockAlternativeWorkout);
   });
 
   it('renders DailyTrain header', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
       expect(getByText('DailyTrain')).toBeTruthy();
     });
   });
 
-  it('displays readiness score', async () => {
+  it('displays overall readiness score', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
-      expect(getByText('72')).toBeTruthy();
-      expect(getByText('READINESS')).toBeTruthy();
+      expect(getByText('OVERALL READINESS')).toBeTruthy();
     });
   });
 
   it('shows correct readiness label for moderate score', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
       expect(getByText('MODERATE EFFORT')).toBeTruthy();
@@ -57,7 +71,9 @@ describe('DashboardScreen', () => {
 
   it('displays health metrics', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
       expect(getByText('54')).toBeTruthy();
@@ -70,31 +86,81 @@ describe('DashboardScreen', () => {
 
   it('displays days to race countdown', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
       expect(getByText('DAYS TO RACE')).toBeTruthy();
     });
   });
 
-  it('displays workout preview after auto-generation', async () => {
+  it('displays workout with full details after generation', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText, getAllByText } = renderWithProviders(
+      <DashboardScreen navigation={mockNavigation} />,
+      { withChat: true }
+    );
 
     await waitFor(() => {
       expect(getByText('Tempo Run')).toBeTruthy();
       expect(getByText('RUN')).toBeTruthy();
-      expect(getByText('60 min')).toBeTruthy();
-      expect(getByText('VIEW FULL WORKOUT')).toBeTruthy();
+      // "60 min" may appear in both main and alternative workout
+      expect(getAllByText('60 min').length).toBeGreaterThanOrEqual(1);
+      expect(getByText('START WORKOUT')).toBeTruthy();
     });
   });
 
   it('renders today session section title', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />);
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
 
     await waitFor(() => {
       expect(getByText("TODAY'S SESSION")).toBeTruthy();
+    });
+  });
+
+  it('displays inline workout sections', async () => {
+    await seedAsyncStorage({ user: mockUser, profile: mockProfile, workout: mockWorkout });
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
+
+    await waitFor(() => {
+      expect(getByText('WARMUP')).toBeTruthy();
+      expect(getByText('MAIN SET')).toBeTruthy();
+      expect(getByText('COOLDOWN')).toBeTruthy();
+    });
+  });
+
+  it('shows alternative workout card', async () => {
+    await seedAsyncStorage({ user: mockUser, profile: mockProfile });
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
+
+    await waitFor(() => {
+      expect(getByText('ALTERNATIVE OPTION')).toBeTruthy();
+      expect(getByText('Endurance Swim')).toBeTruthy();
+      expect(getByText('SWITCH TO THIS')).toBeTruthy();
+    });
+  });
+
+  it('shows yesterday score when workout history exists', async () => {
+    await seedAsyncStorage({
+      user: mockUser,
+      profile: mockProfile,
+      workoutHistory: mockWorkoutHistoryWithYesterday,
+    });
+
+    const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
+      withChat: true,
+    });
+
+    await waitFor(() => {
+      expect(getByText("YESTERDAY'S SESSION")).toBeTruthy();
     });
   });
 });

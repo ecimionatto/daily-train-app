@@ -39,7 +39,7 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <View style={styles.hero}>
         <Text style={styles.appName}>DailyTrain</Text>
-        <Text style={styles.tagline}>AI-powered Ironman training{'\n'}on your iPhone</Text>
+        <Text style={styles.tagline}>AI-powered endurance training{'\n'}on your iPhone</Text>
       </View>
 
       <View style={styles.features}>

@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchHealthData, calculateReadiness } from '../services/healthKit';
+import {
+  findYesterdayWorkouts,
+  calculateCompletionScore,
+  calculateRecentComplianceScore,
+  calculateRacePreparationScore,
+  calculateOverallReadiness,
+  getCompletionFeedback,
+} from '../services/workoutScoring';
 
 const AppContext = createContext();
 
@@ -13,6 +21,10 @@ export function AppProvider({ children }) {
   const [healthData, setHealthData] = useState(null);
   const [todayWorkout, setTodayWorkout] = useState(null);
   const [readinessScore, setReadinessScore] = useState(null);
+  const [alternativeWorkout, setAlternativeWorkout] = useState(null);
+  const [yesterdayScore, setYesterdayScore] = useState(null);
+  const [overallReadiness, setOverallReadiness] = useState(null);
+  const [workoutHistory, setWorkoutHistory] = useState([]);
 
   useEffect(() => {
     loadProfile();
@@ -22,8 +34,17 @@ export function AppProvider({ children }) {
     if (athleteProfile) {
       loadHealthData();
       loadCachedWorkout();
+      loadWorkoutHistory();
     }
   }, [athleteProfile]);
+
+  useEffect(() => {
+    if (workoutHistory.length > 0 && readinessScore !== null) {
+      computeYesterdayScore(workoutHistory);
+      computeOverallReadiness(readinessScore, workoutHistory);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workoutHistory, readinessScore]);
 
   async function loadProfile() {
     try {
@@ -69,6 +90,17 @@ export function AppProvider({ children }) {
     }
   }
 
+  async function loadWorkoutHistory() {
+    try {
+      const raw = await AsyncStorage.getItem('workoutHistory');
+      if (raw) {
+        setWorkoutHistory(JSON.parse(raw));
+      }
+    } catch (e) {
+      console.warn('Failed to load workout history:', e);
+    }
+  }
+
   async function saveTodayWorkout(workout) {
     try {
       const today = new Date().toDateString();
@@ -77,6 +109,53 @@ export function AppProvider({ children }) {
     } catch (e) {
       console.warn('Failed to save workout:', e);
     }
+  }
+
+  async function swapTodayWorkout(newWorkout) {
+    try {
+      const today = new Date().toDateString();
+      await AsyncStorage.setItem(
+        'todayWorkout',
+        JSON.stringify({ date: today, workout: newWorkout })
+      );
+      setTodayWorkout(newWorkout);
+    } catch (e) {
+      console.warn('Failed to swap workout:', e);
+    }
+  }
+
+  function saveAlternativeWorkout(workout) {
+    setAlternativeWorkout(workout);
+  }
+
+  function computeYesterdayScore(history) {
+    const yesterdayWorkouts = findYesterdayWorkouts(history);
+    if (yesterdayWorkouts.length === 0) {
+      setYesterdayScore(null);
+      return;
+    }
+    const latest = yesterdayWorkouts[yesterdayWorkouts.length - 1];
+    const completionScore = calculateCompletionScore(latest);
+    const feedback = getCompletionFeedback(completionScore);
+    setYesterdayScore({
+      completionScore,
+      feedback,
+      completedWorkout: latest,
+    });
+  }
+
+  function computeOverallReadiness(healthScore, history) {
+    const phase = getTrainingPhase();
+    const daysToRace = getDaysToRace();
+    const compliance = calculateRecentComplianceScore(history, 7);
+    const racePrep = calculateRacePreparationScore(phase, daysToRace, compliance);
+    const overall = calculateOverallReadiness(healthScore, compliance, racePrep);
+    setOverallReadiness({
+      overall,
+      health: healthScore,
+      compliance: compliance ?? 50,
+      racePrep,
+    });
   }
 
   function getTrainingPhase() {
@@ -106,9 +185,16 @@ export function AppProvider({ children }) {
     loadHealthData,
     todayWorkout,
     saveTodayWorkout,
+    swapTodayWorkout,
     readinessScore,
     getTrainingPhase,
     getDaysToRace,
+    alternativeWorkout,
+    saveAlternativeWorkout,
+    yesterdayScore,
+    overallReadiness,
+    workoutHistory,
+    loadWorkoutHistory,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

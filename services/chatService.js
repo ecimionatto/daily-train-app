@@ -1,57 +1,430 @@
 import { runInference } from './localModel';
+import { generateReplacementWorkout } from './localModel';
+
+const TRAINING_KEYWORDS = [
+  'workout',
+  'train',
+  'run',
+  'swim',
+  'bike',
+  'cycle',
+  'ride',
+  'race',
+  'ironman',
+  'triathlon',
+  'marathon',
+  'sprint',
+  'endurance',
+  'interval',
+  'tempo',
+  'zone',
+  'recovery',
+  'rest',
+  'sore',
+  'tired',
+  'fatigue',
+  'injury',
+  'pain',
+  'hurt',
+  'nutrition',
+  'eat',
+  'food',
+  'hydrat',
+  'fuel',
+  'carb',
+  'protein',
+  'calorie',
+  'diet',
+  'gel',
+  'electrolyte',
+  'pacing',
+  'strategy',
+  'transition',
+  'taper',
+  'plan',
+  'schedule',
+  'phase',
+  'volume',
+  'intensity',
+  'threshold',
+  'brick',
+  'stretch',
+  'warm',
+  'cool',
+  'drill',
+  'pace',
+  'heart rate',
+  'hrv',
+  'sleep',
+  'readiness',
+  'coach',
+  'session',
+  'set',
+  'rep',
+  'lap',
+  'distance',
+  'speed',
+  'watts',
+  'power',
+  'cadence',
+  'stroke',
+  'form',
+  'technique',
+  'gear',
+  'wetsuit',
+  'shoes',
+  'helmet',
+  'aero',
+  'strength',
+  'core',
+  'muscle',
+  'weight',
+  'body',
+  'fitness',
+  'health',
+  'performance',
+  'goal',
+  'pr',
+  'personal best',
+  'time',
+  'finish',
+  'split',
+  'negative split',
+  'kick',
+  'pull',
+  'bilateral',
+  'breathing',
+  'foam roll',
+  'massage',
+  'ice bath',
+  'active recovery',
+  'cross train',
+  'overtrain',
+  'burnout',
+  'base build',
+  'peak',
+  'deload',
+  'vo2',
+  'aerobic',
+  'anaerobic',
+  'lactate',
+  'ftp',
+  'css',
+  'half ironman',
+  '70.3',
+  'full ironman',
+  '140.6',
+  'olympic',
+  'modify',
+  'change',
+  'swap',
+  'easier',
+  'harder',
+  'skip',
+  'replace',
+  'how am i',
+  'progress',
+  'improve',
+  'faster',
+  'stronger',
+  'week',
+  'yesterday',
+  'today',
+  'tomorrow',
+  'morning',
+  'evening',
+  'daily',
+  'hello',
+  'hi',
+  'hey',
+  'thanks',
+  'thank',
+  'help',
+  'advice',
+];
+
+/**
+ * Check if a message is off-topic (not training-related).
+ */
+export function isOffTopic(message) {
+  const lower = message.toLowerCase();
+  return !TRAINING_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Standard response for off-topic questions.
+ */
+export function getOffTopicResponse() {
+  return "I'm your triathlon coach! I can help with training plans, workout modifications, recovery, nutrition, and race strategy. For other topics, you'll want to check a different source. What can I help you with on your training?";
+}
 
 /**
  * Process a user message and return a coach response.
- * Tries local Qwen 3.5 model first, falls back to rule-based engine.
+ * Checks off-topic first, then tries AI model, falls back to rule-based.
  */
 export async function getCoachResponse(userMessage, context, conversationHistory) {
+  if (isOffTopic(userMessage)) {
+    return getOffTopicResponse();
+  }
+
+  const category = classifyMessage(userMessage);
+
+  // Handle workout swap requests
+  if (
+    (category === 'workout_swap' || category === 'workout_modification') &&
+    context.onWorkoutSwap
+  ) {
+    return handleWorkoutSwap(userMessage, context);
+  }
+
   const systemPrompt = buildCoachSystemPrompt(context);
+  const summary = buildConversationSummary(conversationHistory);
 
-  const recentHistory = conversationHistory.slice(-6);
-  const historyBlock = recentHistory
-    .map((m) => `${m.role === 'athlete' ? 'Athlete' : 'Coach'}: ${m.content}`)
-    .join('\n');
-
-  const userPrompt = historyBlock
-    ? `Previous conversation:\n${historyBlock}\n\nAthlete: ${userMessage}`
-    : `Athlete: ${userMessage}`;
+  const userPrompt = summary ? `${summary}\n\nAthlete: ${userMessage}` : `Athlete: ${userMessage}`;
 
   const modelResponse = await runInference(systemPrompt, userPrompt);
   if (modelResponse) {
     return modelResponse.trim();
   }
 
-  const category = classifyMessage(userMessage);
   return generateFallbackResponse(category, userMessage, context);
+}
+
+/**
+ * Handle a workout swap request: generate replacement and update state.
+ */
+async function handleWorkoutSwap(userMessage, context) {
+  const { athleteProfile, healthData, readinessScore, phase, daysToRace, todayWorkout } = context;
+
+  try {
+    const newWorkout = await generateReplacementWorkout({
+      profile: athleteProfile,
+      healthData,
+      readinessScore,
+      phase,
+      daysToRace,
+      reason: userMessage,
+    });
+
+    if (newWorkout && context.onWorkoutSwap) {
+      await context.onWorkoutSwap(newWorkout);
+      return `I've updated your workout! Your new session is: ${newWorkout.title} (${newWorkout.discipline}, ${newWorkout.duration}min, ${newWorkout.intensity}). ${newWorkout.summary} Check your Dashboard to see the full details.`;
+    }
+  } catch (e) {
+    console.warn('Failed to generate replacement workout:', e);
+  }
+
+  // Fallback: give advice without swapping
+  const score = readinessScore || 65;
+  return buildWorkoutModResponse(todayWorkout, score);
+}
+
+/**
+ * Build a conversation summary from full history.
+ * Groups exchanges, extracts topics, appends last 3 messages verbatim.
+ */
+export function buildConversationSummary(messages) {
+  if (!messages || messages.length === 0) return '';
+
+  const athleteMessages = messages.filter((m) => m.role === 'athlete');
+  const topicCounts = {};
+  athleteMessages.forEach((m) => {
+    const topic = classifyMessage(m.content);
+    topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+  });
+
+  const topTopics = Object.entries(topicCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([topic]) => topic);
+
+  const parts = [];
+  if (topTopics.length > 0) {
+    parts.push(`CONVERSATION HISTORY (${messages.length} messages):`);
+    parts.push(`Key topics discussed: ${topTopics.join(', ')}`);
+  }
+
+  // Include last 3 exchanges verbatim for immediate context
+  const recentMessages = messages.slice(-6);
+  if (recentMessages.length > 0) {
+    parts.push('Recent messages:');
+    recentMessages.forEach((m) => {
+      const role = m.role === 'athlete' ? 'Athlete' : 'Coach';
+      parts.push(`${role}: ${m.content}`);
+    });
+  }
+
+  return parts.join('\n');
 }
 
 /**
  * Build the system prompt injected with full athlete context.
  */
 export function buildCoachSystemPrompt(context) {
-  const { athleteProfile, healthData, readinessScore, phase, daysToRace, todayWorkout } = context;
-  return `You are an elite Ironman triathlon coach named Coach. You provide concise, personalized coaching advice.
+  const {
+    athleteProfile,
+    healthData,
+    readinessScore,
+    phase,
+    daysToRace,
+    todayWorkout,
+    yesterdayScore,
+    overallReadiness,
+    workoutHistory,
+    conversationSummary,
+  } = context;
 
-ATHLETE PROFILE:
+  const sections = [];
+
+  sections.push(`You are an elite Ironman triathlon coach named Coach. You provide concise, personalized coaching advice.
+You are ONLY a triathlon coach. If the athlete asks about non-training topics, politely decline and redirect to training.
+When the athlete is struggling, encourage them but also offer to adjust the workout. Push them to follow their plan.`);
+
+  sections.push(`ATHLETE PROFILE:
 - Distance: ${athleteProfile?.distance || 'Full Ironman'}
 - Level: ${athleteProfile?.level || 'Intermediate'}
 - Weekly hours: ${athleteProfile?.weeklyHours || 'N/A'}
 - Strongest: ${athleteProfile?.strongestDiscipline || 'N/A'}
 - Weakest: ${athleteProfile?.weakestDiscipline || 'N/A'}
 - Injuries: ${athleteProfile?.injuries || 'None'}
-- Goal time: ${athleteProfile?.goalTime || 'N/A'}
+- Goal time: ${athleteProfile?.goalTime || 'N/A'}`);
 
-CURRENT STATUS:
+  sections.push(`CURRENT STATUS:
 - Training phase: ${phase || 'BASE'}
 - Days to race: ${daysToRace ?? 'N/A'}
 - Readiness score: ${readinessScore ?? 'N/A'}/100
 - Resting HR: ${healthData?.restingHR || 'N/A'} bpm
 - HRV: ${healthData?.hrv || 'N/A'} ms
-- Sleep: ${healthData?.sleepHours?.toFixed(1) || 'N/A'} hours
+- Sleep: ${healthData?.sleepHours?.toFixed(1) || 'N/A'} hours`);
 
-TODAY'S WORKOUT: ${todayWorkout ? `${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min, ${todayWorkout.intensity})` : 'Not generated yet'}
+  if (overallReadiness) {
+    sections.push(`OVERALL READINESS BREAKDOWN:
+- Overall: ${overallReadiness.overall}/100
+- Health: ${overallReadiness.health}/100
+- Training compliance: ${overallReadiness.compliance}/100
+- Race preparation: ${overallReadiness.racePrep}/100`);
+  }
 
-Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant.`;
+  if (yesterdayScore) {
+    sections.push(`YESTERDAY'S PERFORMANCE:
+- Completion: ${yesterdayScore.completionScore ?? 'N/A'}%
+- Feedback: ${yesterdayScore.feedback?.label || 'N/A'}`);
+  }
+
+  const workoutInfo = todayWorkout
+    ? `${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min, ${todayWorkout.intensity})`
+    : 'Not generated yet';
+  sections.push(`TODAY'S WORKOUT: ${workoutInfo}`);
+
+  if (workoutHistory && workoutHistory.length > 0) {
+    const recent = workoutHistory.slice(-7);
+    const historyLines = recent.map(
+      (w) => `${w.discipline}: ${w.title} (${w.completedSets}/${w.totalSets} sets)`
+    );
+    sections.push(
+      `RECENT WORKOUT HISTORY (last ${recent.length} sessions):\n${historyLines.join('\n')}`
+    );
+  }
+
+  if (conversationSummary) {
+    sections.push(conversationSummary);
+  }
+
+  sections.push(
+    "Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant. Push the athlete to stay consistent and follow their training plan."
+  );
+
+  return sections.join('\n\n');
+}
+
+/**
+ * Generate a proactive morning greeting.
+ * Tries AI model first, falls back to rule-based.
+ */
+export async function generateProactiveGreeting(context) {
+  const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+
+  const systemPrompt = `You are an elite Ironman coach. Generate a brief, motivating morning message for your athlete.
+Include: yesterday's performance feedback, today's workout preview, race countdown encouragement.
+Keep it under 100 words. Be warm, specific, and push them to follow the plan.`;
+
+  const parts = [];
+  if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
+    parts.push(
+      `Yesterday: ${yesterdayScore.completionScore}% completion (${yesterdayScore.feedback?.label})`
+    );
+  }
+  if (todayWorkout) {
+    parts.push(
+      `Today: ${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min)`
+    );
+  }
+  parts.push(
+    `Readiness: ${readinessScore ?? 'N/A'}/100, Phase: ${phase}, Days to race: ${daysToRace ?? 'N/A'}`
+  );
+
+  const modelResponse = await runInference(systemPrompt, parts.join('. '));
+  if (modelResponse) return modelResponse.trim();
+
+  return generateFallbackGreeting(context);
+}
+
+/**
+ * Rule-based proactive greeting.
+ */
+export function generateFallbackGreeting(context) {
+  const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+  const parts = [];
+
+  // Yesterday feedback
+  if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
+    parts.push(
+      `Yesterday you completed ${yesterdayScore.completionScore}% of your workout. ${yesterdayScore.feedback?.message || ''}`
+    );
+  }
+
+  // Today preview
+  if (todayWorkout) {
+    const score = readinessScore || 65;
+    let motivation = 'Give it your best today.';
+    if (score >= 75) motivation = 'Your body is ready — make this one count!';
+    else if (score < 55) motivation = 'Take it easy and focus on recovery.';
+    parts.push(
+      `Today's session: ${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min). ${motivation}`
+    );
+  }
+
+  // Race countdown
+  if (daysToRace !== null && daysToRace !== undefined) {
+    const phaseMessages = {
+      RACE_WEEK: 'Race week! Trust your training and stay calm.',
+      TAPER: 'Taper mode — the hard work is done. Stay sharp.',
+      PEAK: 'Peak training — this is where champions are made.',
+      BUILD: 'Building fitness every day. Stay consistent!',
+      BASE: 'Building your foundation. Every session matters.',
+    };
+    parts.push(`${daysToRace} days to race. ${phaseMessages[phase] || phaseMessages.BASE}`);
+  }
+
+  return parts.join(' ') || 'Good morning! Ready to train today?';
+}
+
+/**
+ * Generate a weekly review (for Sunday nights).
+ */
+export async function generateWeeklyReview(context) {
+  const { athleteProfile, workoutHistory, phase, daysToRace, overallReadiness } = context;
+  const { generateWeeklyPlanAdjustment } = require('./localModel');
+
+  const complianceScore = overallReadiness?.compliance ?? null;
+
+  return generateWeeklyPlanAdjustment({
+    profile: athleteProfile,
+    weekHistory: (workoutHistory || []).slice(-7),
+    phase,
+    daysToRace,
+    complianceScore,
+  });
 }
 
 /**
@@ -60,6 +433,20 @@ Keep responses under 150 words. Be encouraging but honest. Reference the athlete
 export function classifyMessage(message) {
   const lower = message.toLowerCase();
   const categories = [
+    {
+      key: 'workout_swap',
+      keywords: [
+        'different workout',
+        'change workout',
+        "can't do",
+        'cannot do',
+        'not feeling',
+        'something else',
+        'give me another',
+        'another workout',
+        'new workout',
+      ],
+    },
     {
       key: 'workout_modification',
       keywords: [
@@ -161,6 +548,7 @@ export function generateFallbackResponse(category, _userMessage, context) {
   switch (category) {
     case 'training_plan':
       return buildTrainingPlanResponse(phaseName, daysToRace, score);
+    case 'workout_swap':
     case 'workout_modification':
       return buildWorkoutModResponse(todayWorkout, score);
     case 'recovery':
@@ -202,13 +590,13 @@ function buildWorkoutModResponse(todayWorkout, score) {
   let response = `Today's workout is ${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration} min, ${todayWorkout.intensity} intensity). `;
   if (score < 55) {
     response +=
-      'Given your low readiness score, I recommend swapping this for an easy recovery session. A 30-minute easy spin or walk with stretching would be ideal.';
+      "Given your low readiness score, I recommend swapping this for an easy recovery session. A 30-minute easy spin or walk with stretching would be ideal. Just ask me for a different workout and I'll set one up for you.";
   } else if (score < 75) {
     response +=
-      'Your readiness is moderate. You can do this workout but consider reducing the intensity of any Zone 3-4 intervals to Zone 2-3. Listen to your body.';
+      'Your readiness is moderate. You can do this workout but consider reducing the intensity of any Zone 3-4 intervals to Zone 2-3. Want me to swap it for something different?';
   } else {
     response +=
-      'Your readiness is solid. Execute the workout as planned. If you feel great, you can push the upper end of the prescribed zones.';
+      'Your readiness is solid. Execute the workout as planned. If you feel great, you can push the upper end of the prescribed zones. Stay consistent!';
   }
   return response;
 }
@@ -265,12 +653,12 @@ function buildRaceStrategyResponse(phase, daysToRace) {
 }
 
 function buildGeneralResponse(phaseName, score, daysToRace) {
-  let response = `Welcome! I'm your AI coach. You're in the ${phaseName} phase`;
+  let response = `Hey! I'm your AI triathlon coach. You're in the ${phaseName} phase`;
   if (daysToRace !== null && daysToRace !== undefined) {
     response += ` with ${daysToRace} days to race`;
   }
   response += `. Your readiness today is ${score}/100. `;
   response +=
-    'Feel free to ask me about your training plan, workout modifications, recovery, nutrition, or race strategy. I have access to your health data and training phase to give personalized advice.';
+    "Ask me about your training plan, workout modifications, recovery, nutrition, or race strategy. I can also swap your workout if you need something different today. Let's get after it!";
   return response;
 }

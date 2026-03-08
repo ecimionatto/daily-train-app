@@ -1,4 +1,10 @@
-import { generateWorkoutLocally, generateWeeklySummaryLocally } from '../services/localModel';
+import {
+  generateWorkoutLocally,
+  generateWeeklySummaryLocally,
+  generateAlternativeWorkout,
+  generateReplacementWorkout,
+  generateWeeklyPlanAdjustment,
+} from '../services/localModel';
 
 jest.mock('../services/healthKit');
 
@@ -78,9 +84,9 @@ describe('generateWorkoutLocally', () => {
       daysToRace: 60,
     });
 
-    // Both should be valid
-    expect(highReadiness.duration).toBeGreaterThan(0);
-    expect(lowReadiness.duration).toBeGreaterThan(0);
+    // Both should have valid durations (rest days can be 0)
+    expect(highReadiness.duration).toBeGreaterThanOrEqual(0);
+    expect(lowReadiness.duration).toBeGreaterThanOrEqual(0);
   });
 
   it('includes sets with descriptions in each section', async () => {
@@ -99,6 +105,158 @@ describe('generateWorkoutLocally', () => {
         expect(set.description).toBeDefined();
       });
     });
+  });
+});
+
+describe('generateAlternativeWorkout', () => {
+  it('returns a workout with different discipline than excluded', async () => {
+    const alt = await generateAlternativeWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      excludeDiscipline: 'run',
+    });
+
+    expect(alt).not.toBeNull();
+    expect(alt.discipline).not.toBe('run');
+    expect(['swim', 'bike', 'strength', 'rest']).toContain(alt.discipline);
+  });
+
+  it('returns a valid workout structure', async () => {
+    const alt = await generateAlternativeWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      excludeDiscipline: 'bike',
+    });
+
+    expect(alt.title).toBeDefined();
+    expect(alt.sections).toBeDefined();
+    expect(alt.sections.length).toBeGreaterThan(0);
+  });
+
+  it('returns null for rest day with low readiness', async () => {
+    const alt = await generateAlternativeWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 40,
+      phase: 'BUILD',
+      daysToRace: 60,
+      excludeDiscipline: 'rest',
+    });
+
+    expect(alt).toBeNull();
+  });
+
+  it('prioritizes weakest discipline as alternative', async () => {
+    const alt = await generateAlternativeWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      excludeDiscipline: 'run',
+    });
+
+    // weakestDiscipline is Swim, and it's not excluded, so it should be picked
+    expect(alt.discipline).toBe('swim');
+  });
+});
+
+describe('generateReplacementWorkout', () => {
+  it('avoids run when knee injury mentioned', async () => {
+    const workout = await generateReplacementWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      reason: 'my knee hurts today',
+    });
+
+    expect(workout.discipline).not.toBe('run');
+  });
+
+  it('returns easy workout when tired', async () => {
+    const workout = await generateReplacementWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      reason: 'I am exhausted and tired',
+    });
+
+    expect(workout.discipline).toBe('rest');
+  });
+
+  it('returns a valid workout structure', async () => {
+    const workout = await generateReplacementWorkout({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      reason: 'I want something different',
+    });
+
+    expect(workout.title).toBeDefined();
+    expect(workout.sections).toBeDefined();
+  });
+});
+
+describe('generateWeeklyPlanAdjustment', () => {
+  it('returns advice text for empty week', async () => {
+    const advice = await generateWeeklyPlanAdjustment({
+      profile: mockProfile,
+      weekHistory: [],
+      phase: 'BUILD',
+      daysToRace: 60,
+      complianceScore: null,
+    });
+
+    expect(typeof advice).toBe('string');
+    expect(advice.length).toBeGreaterThan(20);
+    expect(advice).toContain('no completed workouts');
+  });
+
+  it('includes compliance assessment', async () => {
+    const weekHistory = [
+      { discipline: 'swim', title: 'Swim', duration: 60, completedSets: 6, totalSets: 6 },
+      { discipline: 'run', title: 'Run', duration: 45, completedSets: 4, totalSets: 5 },
+    ];
+
+    const advice = await generateWeeklyPlanAdjustment({
+      profile: mockProfile,
+      weekHistory,
+      phase: 'BUILD',
+      daysToRace: 60,
+      complianceScore: 85,
+    });
+
+    expect(advice).toContain('2 sessions');
+    expect(advice).toContain('85%');
+  });
+
+  it('flags missing disciplines', async () => {
+    const weekHistory = [
+      { discipline: 'run', title: 'Run', duration: 45, completedSets: 4, totalSets: 5 },
+    ];
+
+    const advice = await generateWeeklyPlanAdjustment({
+      profile: mockProfile,
+      weekHistory,
+      phase: 'BUILD',
+      daysToRace: 60,
+      complianceScore: 80,
+    });
+
+    expect(advice).toContain('swim');
+    expect(advice).toContain('bike');
   });
 });
 
