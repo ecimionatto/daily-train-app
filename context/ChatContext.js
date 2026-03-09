@@ -34,6 +34,7 @@ export function ChatProvider({ children }) {
     overallReadiness,
     workoutHistory,
     swapTodayWorkout,
+    completedWorkouts,
   } = useApp();
 
   useEffect(() => {
@@ -187,7 +188,7 @@ export function ChatProvider({ children }) {
       todayWorkout,
       yesterdayScore,
       overallReadiness,
-      workoutHistory: (workoutHistory || []).slice(-14),
+      workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
       conversationSummary: buildConversationSummary(messages),
       onWorkoutSwap: swapTodayWorkout,
     };
@@ -222,7 +223,7 @@ export function ChatProvider({ children }) {
           todayWorkout,
           yesterdayScore,
           overallReadiness,
-          workoutHistory: (workoutHistory || []).slice(-14),
+          workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
           conversationSummary: buildConversationSummary(updatedMessages),
           onWorkoutSwap: swapTodayWorkout,
         };
@@ -265,6 +266,7 @@ export function ChatProvider({ children }) {
       yesterdayScore,
       overallReadiness,
       workoutHistory,
+      completedWorkouts,
       swapTodayWorkout,
       getTrainingPhase,
       getDaysToRace,

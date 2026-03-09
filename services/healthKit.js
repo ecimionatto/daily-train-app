@@ -245,6 +245,75 @@ export function calculateReadiness(data) {
   return Math.min(100, Math.max(0, score));
 }
 
+// --- Apple Health Workout Reading ---
+
+/**
+ * Map HKWorkoutActivityType numeric codes to app discipline strings.
+ */
+const HEALTHKIT_WORKOUT_TYPE_MAP = {
+  46: 'swim', // HKWorkoutActivityTypeSwimming
+  13: 'bike', // HKWorkoutActivityTypeCycling
+  37: 'run', // HKWorkoutActivityTypeRunning
+  52: 'run', // HKWorkoutActivityTypeWalking
+  35: 'run', // HKWorkoutActivityTypeHiking
+  50: 'strength', // HKWorkoutActivityTypeFunctionalStrengthTraining
+  20: 'strength', // HKWorkoutActivityTypeTraditionalStrengthTraining
+};
+
+/**
+ * Map a HealthKit workout activity type to an app discipline.
+ */
+export function mapWorkoutType(hkActivityType) {
+  return HEALTHKIT_WORKOUT_TYPE_MAP[hkActivityType] || 'other';
+}
+
+function mapWorkoutSample(sample) {
+  return {
+    id: sample.id || `hk_${sample.startDate}`,
+    discipline: mapWorkoutType(sample.activityId),
+    startDate: sample.startDate,
+    endDate: sample.endDate,
+    durationMinutes: Math.round((new Date(sample.endDate) - new Date(sample.startDate)) / 60000),
+    calories: sample.calories ? Math.round(sample.calories) : null,
+    distanceMeters: sample.distance ? Math.round(sample.distance * 1000) : null,
+    source: sample.sourceName || 'Apple Health',
+  };
+}
+
+function getWorkoutSamples(startDate, endDate) {
+  return new Promise((resolve) => {
+    AppleHealthKit.getSamples({ startDate, endDate, type: 'Workout' }, (err, results) => {
+      if (err || !results) {
+        resolve([]);
+      } else {
+        resolve(results.map(mapWorkoutSample));
+      }
+    });
+  });
+}
+
+/**
+ * Fetch completed workouts from Apple Health for the last N days.
+ * Falls back to mock data on simulator/Android.
+ */
+export async function fetchCompletedWorkouts(daysBack = 7) {
+  if (!AppleHealthKit) {
+    return getMockCompletedWorkouts(daysBack);
+  }
+
+  try {
+    const initialized = await initHealthKit();
+    if (!initialized) return getMockCompletedWorkouts(daysBack);
+
+    const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const endDate = new Date().toISOString();
+    return getWorkoutSamples(startDate, endDate);
+  } catch (e) {
+    console.warn('Failed to fetch completed workouts:', e);
+    return getMockCompletedWorkouts(daysBack);
+  }
+}
+
 // --- Mock Data (for simulator / Android fallback) ---
 
 function getMockHealthData() {
@@ -269,4 +338,38 @@ function getMockHistory(days) {
     });
   }
   return history;
+}
+
+function getMockCompletedWorkouts(daysBack) {
+  const disciplines = ['swim', 'bike', 'run', 'strength'];
+  const workouts = [];
+  const now = Date.now();
+
+  for (let i = daysBack - 1; i >= 0; i--) {
+    const dayStart = new Date(now - i * 86400000);
+    dayStart.setHours(6, 0, 0, 0);
+    const dayOfWeek = dayStart.getDay();
+
+    // Rest on Sundays, 1-2 workouts on other days
+    if (dayOfWeek === 0) continue;
+
+    const discipline = disciplines[(daysBack - i) % disciplines.length];
+    const duration = discipline === 'strength' ? 35 : 45 + Math.floor(Math.random() * 30);
+    const startDate = new Date(dayStart);
+    const endDate = new Date(startDate.getTime() + duration * 60000);
+
+    workouts.push({
+      id: `mock_${i}`,
+      discipline,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      durationMinutes: duration,
+      calories: Math.round(duration * 8 + Math.random() * 100),
+      distanceMeters:
+        discipline === 'strength' ? null : Math.round(duration * 150 + Math.random() * 2000),
+      source: 'Mock Apple Watch',
+    });
+  }
+
+  return workouts;
 }

@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchHealthData, calculateReadiness } from '../services/healthKit';
+import { fetchHealthData, calculateReadiness, fetchCompletedWorkouts } from '../services/healthKit';
 import {
   findYesterdayWorkouts,
+  findYesterdayCompletedWorkouts,
   calculateCompletionScore,
   calculateRecentComplianceScore,
+  calculateRecentActivityScore,
   calculateRacePreparationScore,
   calculateOverallReadiness,
   getCompletionFeedback,
@@ -25,6 +27,7 @@ export function AppProvider({ children }) {
   const [yesterdayScore, setYesterdayScore] = useState(null);
   const [overallReadiness, setOverallReadiness] = useState(null);
   const [workoutHistory, setWorkoutHistory] = useState([]);
+  const [completedWorkouts, setCompletedWorkouts] = useState([]);
 
   useEffect(() => {
     loadProfile();
@@ -32,19 +35,22 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (athleteProfile) {
+      migrateProfileIfNeeded(athleteProfile);
       loadHealthData();
       loadCachedWorkout();
       loadWorkoutHistory();
+      loadCompletedWorkouts();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [athleteProfile]);
 
   useEffect(() => {
-    if (workoutHistory.length > 0 && readinessScore !== null) {
-      computeYesterdayScore(workoutHistory);
-      computeOverallReadiness(readinessScore, workoutHistory);
+    if (readinessScore !== null) {
+      computeYesterdayScore(workoutHistory, completedWorkouts);
+      computeOverallReadiness(readinessScore, workoutHistory, completedWorkouts);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workoutHistory, readinessScore]);
+  }, [workoutHistory, completedWorkouts, readinessScore]);
 
   async function loadProfile() {
     try {
@@ -101,6 +107,27 @@ export function AppProvider({ children }) {
     }
   }
 
+  async function loadCompletedWorkouts() {
+    try {
+      const workouts = await fetchCompletedWorkouts(14);
+      setCompletedWorkouts(workouts);
+    } catch (e) {
+      console.warn('Failed to load completed workouts:', e);
+    }
+  }
+
+  async function migrateProfileIfNeeded(profile) {
+    if (!profile.raceType) {
+      const migrated = {
+        ...profile,
+        raceType: 'triathlon',
+        previousRaces: profile.previousIronman || profile.previousRaces || 'First timer',
+      };
+      delete migrated.previousIronman;
+      await saveProfile(migrated);
+    }
+  }
+
   async function saveTodayWorkout(workout) {
     try {
       const today = new Date().toDateString();
@@ -128,7 +155,27 @@ export function AppProvider({ children }) {
     setAlternativeWorkout(workout);
   }
 
-  function computeYesterdayScore(history) {
+  function computeYesterdayScore(history, healthWorkouts) {
+    // Try Apple Health completed workouts first
+    const yesterdayHealthWorkouts = findYesterdayCompletedWorkouts(healthWorkouts);
+    if (yesterdayHealthWorkouts.length > 0) {
+      const latest = yesterdayHealthWorkouts[yesterdayHealthWorkouts.length - 1];
+      const durationScore = Math.min(Math.round((latest.durationMinutes / 60) * 100), 100);
+      const feedback = getCompletionFeedback(durationScore);
+      setYesterdayScore({
+        completionScore: durationScore,
+        feedback,
+        completedWorkout: {
+          title: `${latest.discipline?.charAt(0).toUpperCase()}${latest.discipline?.slice(1)} Session`,
+          discipline: latest.discipline,
+          duration: latest.durationMinutes,
+          startDate: latest.startDate,
+        },
+      });
+      return;
+    }
+
+    // Fall back to manual workout history
     const yesterdayWorkouts = findYesterdayWorkouts(history);
     if (yesterdayWorkouts.length === 0) {
       setYesterdayScore(null);
@@ -144,16 +191,20 @@ export function AppProvider({ children }) {
     });
   }
 
-  function computeOverallReadiness(healthScore, history) {
+  function computeOverallReadiness(healthScore, history, healthWorkouts) {
     const phase = getTrainingPhase();
     const daysToRace = getDaysToRace();
-    const compliance = calculateRecentComplianceScore(history, 7);
+
+    // Prefer Apple Health activity score, fall back to manual compliance
+    const activityScore = calculateRecentActivityScore(healthWorkouts, 7);
+    const compliance = activityScore ?? calculateRecentComplianceScore(history, 7) ?? 50;
+
     const racePrep = calculateRacePreparationScore(phase, daysToRace, compliance);
     const overall = calculateOverallReadiness(healthScore, compliance, racePrep);
     setOverallReadiness({
       overall,
       health: healthScore,
-      compliance: compliance ?? 50,
+      compliance,
       racePrep,
     });
   }
@@ -195,6 +246,8 @@ export function AppProvider({ children }) {
     overallReadiness,
     workoutHistory,
     loadWorkoutHistory,
+    completedWorkouts,
+    loadCompletedWorkouts,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

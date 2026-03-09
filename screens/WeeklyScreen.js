@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '../context/AppContext';
 import { generateWeeklySummaryLocally } from '../services/localModel';
 
@@ -14,31 +13,19 @@ const DISCIPLINES = {
 };
 
 export default function WeeklyScreen() {
-  const { athleteProfile, getTrainingPhase } = useApp();
-  const [weekHistory, setWeekHistory] = useState([]);
+  const { athleteProfile, getTrainingPhase, completedWorkouts } = useApp();
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
-  useEffect(() => {
-    loadWeekHistory();
-  }, []);
-
-  async function loadWeekHistory() {
-    try {
-      const raw = await AsyncStorage.getItem('workoutHistory');
-      if (!raw) return;
-      const history = JSON.parse(raw);
-
-      // Get last 7 days of workouts
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-      const thisWeek = history.filter((w) => new Date(w.completedAt) >= sevenDaysAgo);
-      setWeekHistory(thisWeek);
-    } catch (e) {
-      console.warn('Failed to load week history:', e);
-    }
-  }
+  const weekHistory = useMemo(() => {
+    if (!completedWorkouts || completedWorkouts.length === 0) return [];
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return completedWorkouts.filter((w) => {
+      const date = w.startDate ? new Date(w.startDate) : null;
+      return date && date >= sevenDaysAgo;
+    });
+  }, [completedWorkouts]);
 
   async function requestWeeklySummary() {
     setLoadingSummary(true);
@@ -58,7 +45,7 @@ export default function WeeklyScreen() {
   function getWeekGrid() {
     const grid = DAYS.map((day) => ({ day, workouts: [] }));
     weekHistory.forEach((w) => {
-      const date = new Date(w.completedAt);
+      const date = new Date(w.startDate || w.completedAt);
       const dayIdx = (date.getDay() + 6) % 7; // Monday = 0
       if (grid[dayIdx]) {
         grid[dayIdx].workouts.push(w);
@@ -68,11 +55,14 @@ export default function WeeklyScreen() {
   }
 
   function getWeekStats() {
-    const totalDuration = weekHistory.reduce((sum, w) => sum + (w.duration || 0), 0);
+    const totalDuration = weekHistory.reduce(
+      (sum, w) => sum + (w.durationMinutes || w.duration || 0),
+      0
+    );
     const disciplines = {};
     weekHistory.forEach((w) => {
       const d = w.discipline?.toLowerCase() || 'other';
-      disciplines[d] = (disciplines[d] || 0) + (w.duration || 0);
+      disciplines[d] = (disciplines[d] || 0) + (w.durationMinutes || w.duration || 0);
     });
     return { totalDuration, disciplines, count: weekHistory.length };
   }

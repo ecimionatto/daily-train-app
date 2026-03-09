@@ -19,15 +19,31 @@ export const mockUser = {
 
 export const mockProfile = {
   raceDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-  distance: 'Full Ironman',
+  raceType: 'triathlon',
+  distance: 'Full Ironman (140.6)',
   level: 'Intermediate',
   weeklyHours: '8-10',
   strongestDiscipline: 'Bike',
   weakestDiscipline: 'Swim',
   swimBackground: 'Comfortable',
-  previousIronman: '1-2 races',
+  previousRaces: '1-2 races',
   injuries: 'None',
   goalTime: '12-14h',
+  createdAt: new Date().toISOString(),
+};
+
+export const mockRunningProfile = {
+  raceDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+  raceType: 'running',
+  distance: 'Marathon',
+  level: 'Intermediate',
+  weeklyHours: '8-10',
+  strongestDiscipline: 'Run',
+  weakestDiscipline: 'Run',
+  swimBackground: 'N/A',
+  previousRaces: 'First timer',
+  injuries: 'None',
+  goalTime: 'Sub 4:00',
   createdAt: new Date().toISOString(),
 };
 
@@ -92,6 +108,39 @@ export const mockWorkoutHistoryWithYesterday = [
     completedAt: yesterday.toISOString(),
     completedSets: 5,
     totalSets: 6,
+  },
+];
+
+export const mockCompletedWorkouts = [
+  {
+    id: 'hw-1',
+    discipline: 'run',
+    startDate: new Date(Date.now() - 2 * 86400000).toISOString(),
+    endDate: new Date(Date.now() - 2 * 86400000 + 3600000).toISOString(),
+    durationMinutes: 60,
+    calories: 550,
+    distanceMeters: 10000,
+    source: 'Apple Watch',
+  },
+  {
+    id: 'hw-2',
+    discipline: 'swim',
+    startDate: new Date(Date.now() - 1 * 86400000).toISOString(),
+    endDate: new Date(Date.now() - 1 * 86400000 + 2700000).toISOString(),
+    durationMinutes: 45,
+    calories: 400,
+    distanceMeters: 2000,
+    source: 'Apple Watch',
+  },
+  {
+    id: 'hw-3',
+    discipline: 'bike',
+    startDate: new Date(Date.now() - 3600000).toISOString(),
+    endDate: new Date().toISOString(),
+    durationMinutes: 60,
+    calories: 600,
+    distanceMeters: 30000,
+    source: 'Apple Watch',
   },
 ];
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { waitFor } from '@testing-library/react-native';
 import DashboardScreen from '../screens/DashboardScreen';
-import { fetchHealthData, calculateReadiness } from '../services/healthKit';
+import { fetchHealthData, calculateReadiness, fetchCompletedWorkouts } from '../services/healthKit';
 import { generateWorkoutLocally, generateAlternativeWorkout } from '../services/localModel';
 import {
   clearAsyncStorage,
@@ -32,6 +32,7 @@ describe('DashboardScreen', () => {
     jest.clearAllMocks();
     fetchHealthData.mockResolvedValue(mockHealthData);
     calculateReadiness.mockReturnValue(72);
+    fetchCompletedWorkouts.mockResolvedValue([]);
     generateWorkoutLocally.mockResolvedValue(mockWorkout);
     generateAlternativeWorkout.mockResolvedValue(mockAlternativeWorkout);
   });
@@ -107,7 +108,7 @@ describe('DashboardScreen', () => {
       expect(getByText('RUN')).toBeTruthy();
       // "60 min" may appear in both main and alternative workout
       expect(getAllByText('60 min').length).toBeGreaterThanOrEqual(1);
-      expect(getByText('START WORKOUT')).toBeTruthy();
+      expect(getByText('VIEW WORKOUT')).toBeTruthy();
     });
   });
 

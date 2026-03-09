@@ -1,5 +1,6 @@
 import { runInference } from './localModel';
 import { generateReplacementWorkout } from './localModel';
+import { isRunningOnly } from './raceConfig';
 
 const TRAINING_KEYWORDS = [
   'workout',
@@ -115,6 +116,10 @@ const TRAINING_KEYWORDS = [
   'full ironman',
   '140.6',
   'olympic',
+  '5k',
+  '10k',
+  'half marathon',
+  'ultra',
   'modify',
   'change',
   'swap',
@@ -155,7 +160,7 @@ export function isOffTopic(message) {
  * Standard response for off-topic questions.
  */
 export function getOffTopicResponse() {
-  return "I'm your triathlon coach! I can help with training plans, workout modifications, recovery, nutrition, and race strategy. For other topics, you'll want to check a different source. What can I help you with on your training?";
+  return "I'm your endurance coach! I can help with training plans, workout modifications, recovery, nutrition, and race strategy. For other topics, you'll want to check a different source. What can I help you with on your training?";
 }
 
 /**
@@ -276,12 +281,16 @@ export function buildCoachSystemPrompt(context) {
 
   const sections = [];
 
-  sections.push(`You are an elite Ironman triathlon coach named Coach. You provide concise, personalized coaching advice.
-You are ONLY a triathlon coach. If the athlete asks about non-training topics, politely decline and redirect to training.
+  const raceType = athleteProfile?.raceType || 'triathlon';
+  const coachType = isRunningOnly(athleteProfile) ? 'running' : 'endurance triathlon';
+
+  sections.push(`You are an elite ${coachType} coach named Coach. You provide concise, personalized coaching advice.
+You are ONLY an ${coachType} coach. If the athlete asks about non-training topics, politely decline and redirect to training.
 When the athlete is struggling, encourage them but also offer to adjust the workout. Push them to follow their plan.`);
 
   sections.push(`ATHLETE PROFILE:
-- Distance: ${athleteProfile?.distance || 'Full Ironman'}
+- Race type: ${raceType}
+- Distance: ${athleteProfile?.distance || 'N/A'}
 - Level: ${athleteProfile?.level || 'Intermediate'}
 - Weekly hours: ${athleteProfile?.weeklyHours || 'N/A'}
 - Strongest: ${athleteProfile?.strongestDiscipline || 'N/A'}
@@ -318,9 +327,12 @@ When the athlete is struggling, encourage them but also offer to adjust the work
 
   if (workoutHistory && workoutHistory.length > 0) {
     const recent = workoutHistory.slice(-7);
-    const historyLines = recent.map(
-      (w) => `${w.discipline}: ${w.title} (${w.completedSets}/${w.totalSets} sets)`
-    );
+    const historyLines = recent.map((w) => {
+      if (w.startDate) {
+        return `${w.discipline}: ${w.durationMinutes || w.duration}min (${new Date(w.startDate).toLocaleDateString()})`;
+      }
+      return `${w.discipline}: ${w.title} (${w.completedSets}/${w.totalSets} sets)`;
+    });
     sections.push(
       `RECENT WORKOUT HISTORY (last ${recent.length} sessions):\n${historyLines.join('\n')}`
     );
@@ -344,7 +356,7 @@ When the athlete is struggling, encourage them but also offer to adjust the work
 export async function generateProactiveGreeting(context) {
   const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
 
-  const systemPrompt = `You are an elite Ironman coach. Generate a brief, motivating morning message for your athlete.
+  const systemPrompt = `You are an elite endurance coach. Generate a brief, motivating morning message for your athlete.
 Include: yesterday's performance feedback, today's workout preview, race countdown encouragement.
 Keep it under 100 words. Be warm, specific, and push them to follow the plan.`;
 
@@ -624,7 +636,7 @@ function buildRecoveryResponse(healthData, score) {
 }
 
 function buildNutritionResponse(phase, daysToRace) {
-  let response = 'Nutrition is a key pillar of Ironman training. ';
+  let response = 'Nutrition is a key pillar of endurance training. ';
   if (phase === 'RACE_WEEK' || (daysToRace !== null && daysToRace < 7)) {
     response +=
       'In race week, focus on carb-loading 2-3 days before. Eat familiar foods, stay hydrated, and avoid anything new. Plan your race-day nutrition: aim for 60-90g carbs per hour on the bike and 30-60g on the run.';
@@ -653,7 +665,7 @@ function buildRaceStrategyResponse(phase, daysToRace) {
 }
 
 function buildGeneralResponse(phaseName, score, daysToRace) {
-  let response = `Hey! I'm your AI triathlon coach. You're in the ${phaseName} phase`;
+  let response = `Hey! I'm your AI endurance coach. You're in the ${phaseName} phase`;
   if (daysToRace !== null && daysToRace !== undefined) {
     response += ` with ${daysToRace} days to race`;
   }

@@ -10,12 +10,24 @@ jest.mock('../services/healthKit');
 
 const mockProfile = {
   level: 'Intermediate',
-  distance: 'Full Ironman',
+  raceType: 'triathlon',
+  distance: 'Full Ironman (140.6)',
   weeklyHours: '8-10',
   strongestDiscipline: 'Bike',
   weakestDiscipline: 'Swim',
   injuries: 'None',
   goalTime: '12-14h',
+};
+
+const mockRunningProfile = {
+  level: 'Intermediate',
+  raceType: 'running',
+  distance: 'Marathon',
+  weeklyHours: '8-10',
+  strongestDiscipline: 'Run',
+  weakestDiscipline: 'Run',
+  injuries: 'None',
+  goalTime: 'Sub 4:00',
 };
 
 const mockHealthData = {
@@ -323,5 +335,51 @@ describe('generateWeeklySummaryLocally', () => {
     });
 
     expect(summary).toContain('taper');
+  });
+});
+
+describe('generateWorkoutLocally with running profile', () => {
+  it('returns only run/strength/rest disciplines for running profile', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockRunningProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+    });
+
+    expect(['run', 'strength', 'rest']).toContain(workout.discipline);
+  });
+
+  it('never returns swim or bike for running profile', async () => {
+    const results = [];
+    for (let i = 0; i < 7; i++) {
+      const workout = await generateWorkoutLocally({
+        profile: mockRunningProfile,
+        healthData: mockHealthData,
+        readinessScore: 72,
+        phase: 'BUILD',
+        daysToRace: 60,
+      });
+      results.push(workout.discipline);
+    }
+    expect(results).not.toContain('swim');
+    expect(results).not.toContain('bike');
+  });
+});
+
+describe('generateAlternativeWorkout with running profile', () => {
+  it('returns run or strength for running profile', async () => {
+    const alt = await generateAlternativeWorkout({
+      profile: mockRunningProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      excludeDiscipline: 'strength',
+    });
+
+    expect(alt).not.toBeNull();
+    expect(alt.discipline).toBe('run');
   });
 });

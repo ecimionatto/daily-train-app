@@ -19,6 +19,7 @@ export default function DashboardScreen({ navigation }) {
     yesterdayScore,
     overallReadiness,
     swapTodayWorkout,
+    completedWorkouts,
   } = useApp();
 
   const { messages } = useChat();
@@ -47,6 +48,7 @@ export default function DashboardScreen({ navigation }) {
         readinessScore,
         phase,
         daysToRace,
+        completedWorkouts,
       };
       const workout = await generateWorkoutLocally(params);
       await saveTodayWorkout(workout);
@@ -176,8 +178,8 @@ export default function DashboardScreen({ navigation }) {
               <Text style={styles.yesterdayLabel}>{yesterdayScore.feedback?.label}</Text>
               <Text style={styles.yesterdayDetail}>
                 {yesterdayScore.completedWorkout?.title} —{' '}
-                {yesterdayScore.completedWorkout?.completedSets}/
-                {yesterdayScore.completedWorkout?.totalSets} sets
+                {yesterdayScore.completedWorkout?.discipline} ·{' '}
+                {yesterdayScore.completedWorkout?.duration}min
               </Text>
             </View>
           </View>
@@ -209,7 +211,7 @@ export default function DashboardScreen({ navigation }) {
               style={styles.startButton}
               onPress={() => navigation.navigate('Workout')}
             >
-              <Text style={styles.startButtonText}>START WORKOUT</Text>
+              <Text style={styles.startButtonText}>VIEW WORKOUT</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -245,6 +247,40 @@ export default function DashboardScreen({ navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
+        </View>
+      )}
+
+      {/* Recent Apple Health Activity */}
+      {completedWorkouts && completedWorkouts.length > 0 && (
+        <View style={styles.recentActivityCard}>
+          <Text style={styles.sectionTitle}>RECENT ACTIVITY</Text>
+          {completedWorkouts
+            .slice(-3)
+            .reverse()
+            .map((w, i) => (
+              <View key={i} style={styles.recentActivityRow}>
+                <View
+                  style={[
+                    styles.recentActivityDot,
+                    { backgroundColor: getDisciplineColor(w.discipline) },
+                  ]}
+                />
+                <View style={styles.recentActivityInfo}>
+                  <Text style={styles.recentActivityTitle}>
+                    {w.discipline?.charAt(0).toUpperCase()}
+                    {w.discipline?.slice(1)}
+                  </Text>
+                  <Text style={styles.recentActivityMeta}>
+                    {w.durationMinutes}min ·{' '}
+                    {new Date(w.startDate).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                </View>
+              </View>
+            ))}
         </View>
       )}
 
@@ -306,6 +342,17 @@ function getScoreColor(score) {
   if (score >= 75) return '#47ffb2';
   if (score >= 50) return '#e8ff47';
   return '#ff6b6b';
+}
+
+function getDisciplineColor(discipline) {
+  const colors = {
+    swim: '#47b2ff',
+    bike: '#e8ff47',
+    run: '#47ffb2',
+    strength: '#ff6b6b',
+    rest: '#333',
+  };
+  return colors[discipline] || '#888';
 }
 
 const styles = StyleSheet.create({
@@ -649,5 +696,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+  recentActivityCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+  },
+  recentActivityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  recentActivityDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 12,
+  },
+  recentActivityInfo: {
+    flex: 1,
+  },
+  recentActivityTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  recentActivityMeta: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 2,
   },
 });

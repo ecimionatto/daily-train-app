@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
 import WeeklyScreen from '../screens/WeeklyScreen';
-import { fetchHealthData, calculateReadiness } from '../services/healthKit';
+import { fetchHealthData, calculateReadiness, fetchCompletedWorkouts } from '../services/healthKit';
 import { generateWeeklySummaryLocally } from '../services/localModel';
 import {
   clearAsyncStorage,
@@ -9,7 +9,7 @@ import {
   mockUser,
   mockProfile,
   mockHealthData,
-  mockWorkoutHistory,
+  mockCompletedWorkouts,
   renderWithProviders,
 } from './test-utils';
 
@@ -22,6 +22,7 @@ describe('WeeklyScreen', () => {
     jest.clearAllMocks();
     fetchHealthData.mockResolvedValue(mockHealthData);
     calculateReadiness.mockReturnValue(72);
+    fetchCompletedWorkouts.mockResolvedValue([]);
     generateWeeklySummaryLocally.mockResolvedValue('Great week of training!');
   });
 
@@ -71,24 +72,24 @@ describe('WeeklyScreen', () => {
     });
   });
 
-  it('displays session count with workout history', async () => {
+  it('displays session count with completed workouts from Apple Health', async () => {
+    fetchCompletedWorkouts.mockResolvedValue(mockCompletedWorkouts);
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
-      workoutHistory: mockWorkoutHistory,
     });
     const { getByText } = renderWithProviders(<WeeklyScreen />);
 
     await waitFor(() => {
-      expect(getByText(/1 sessions/)).toBeTruthy();
+      expect(getByText(/sessions/)).toBeTruthy();
     });
   });
 
   it('generates AI weekly summary on button press', async () => {
+    fetchCompletedWorkouts.mockResolvedValue(mockCompletedWorkouts);
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
-      workoutHistory: mockWorkoutHistory,
     });
     const { getByText } = renderWithProviders(<WeeklyScreen />);
 

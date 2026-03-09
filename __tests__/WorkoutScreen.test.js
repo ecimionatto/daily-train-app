@@ -1,6 +1,5 @@
 import React from 'react';
-import { fireEvent, waitFor } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { waitFor } from '@testing-library/react-native';
 import WorkoutScreen from '../screens/WorkoutScreen';
 import { fetchHealthData, calculateReadiness } from '../services/healthKit';
 import {
@@ -62,36 +61,36 @@ describe('WorkoutScreen', () => {
     });
   });
 
-  it('shows initial progress as 0 sets', async () => {
+  it('renders sets as read-only without checkboxes', async () => {
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText, queryByText } = renderWithProviders(<WorkoutScreen />);
 
     await waitFor(() => {
-      expect(getByText('0 / 6 sets')).toBeTruthy();
+      expect(getByText('9 min easy jog')).toBeTruthy();
+      expect(queryByText('✓')).toBeNull();
+      expect(queryByText(/sets/)).toBeNull();
     });
   });
 
-  it('toggles set completion on press', async () => {
+  it('does not show MARK COMPLETE button', async () => {
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
-
-    await waitFor(() => getByText('9 min easy jog'));
-    fireEvent.press(getByText('9 min easy jog'));
+    const { queryByText } = renderWithProviders(<WorkoutScreen />);
 
     await waitFor(() => {
-      expect(getByText('1 / 6 sets')).toBeTruthy();
+      expect(queryByText('MARK COMPLETE')).toBeNull();
+      expect(queryByText('WORKOUT LOGGED')).toBeNull();
     });
   });
 
-  it('shows checkmark when set is completed', async () => {
+  it('displays intensity badge', async () => {
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
@@ -99,33 +98,22 @@ describe('WorkoutScreen', () => {
     });
     const { getByText } = renderWithProviders(<WorkoutScreen />);
 
-    await waitFor(() => getByText('9 min easy jog'));
-    fireEvent.press(getByText('9 min easy jog'));
-
     await waitFor(() => {
-      expect(getByText('✓')).toBeTruthy();
+      expect(getByText('MODERATE')).toBeTruthy();
     });
   });
 
-  it('marks workout complete and saves to AsyncStorage', async () => {
+  it('displays zone indicators on sets', async () => {
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
-
-    await waitFor(() => getByText('MARK COMPLETE'));
-    fireEvent.press(getByText('MARK COMPLETE'));
+    const { getAllByText } = renderWithProviders(<WorkoutScreen />);
 
     await waitFor(() => {
-      expect(getByText('WORKOUT LOGGED')).toBeTruthy();
+      const zoneElements = getAllByText(/Zone \d/);
+      expect(zoneElements.length).toBeGreaterThan(0);
     });
-
-    const historyRaw = await AsyncStorage.getItem('workoutHistory');
-    const history = JSON.parse(historyRaw);
-    expect(history).toHaveLength(1);
-    expect(history[0].title).toBe('Tempo Run');
-    expect(history[0].completedAt).toBeDefined();
   });
 });

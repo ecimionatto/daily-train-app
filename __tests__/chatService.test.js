@@ -72,7 +72,7 @@ describe('isOffTopic', () => {
 describe('getOffTopicResponse', () => {
   it('returns a standard decline message', () => {
     const response = getOffTopicResponse();
-    expect(response).toContain('triathlon coach');
+    expect(response).toContain('endurance coach');
     expect(response).toContain('training');
   });
 });
@@ -234,13 +234,23 @@ describe('buildCoachSystemPrompt', () => {
 
   it('handles null context gracefully', () => {
     const prompt = buildCoachSystemPrompt({});
-    expect(prompt).toContain('Full Ironman');
     expect(prompt).toContain('N/A');
+    expect(prompt).toContain('endurance triathlon');
   });
 
   it('includes off-topic guard instruction', () => {
     const prompt = buildCoachSystemPrompt({});
-    expect(prompt).toContain('ONLY a triathlon coach');
+    expect(prompt).toContain('ONLY an endurance triathlon coach');
+  });
+
+  it('includes race type in athlete profile section', () => {
+    const context = {
+      athleteProfile: { raceType: 'running', distance: 'Marathon' },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('running');
+    expect(prompt).toContain('Marathon');
+    expect(prompt).toContain('ONLY an running coach');
   });
 
   it('includes workout history when provided', () => {

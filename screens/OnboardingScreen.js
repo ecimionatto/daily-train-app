@@ -1,52 +1,86 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
+import {
+  EXPERIENCE_OPTIONS,
+  getGoalTimesForDistance,
+  getDistanceOptions,
+} from '../services/raceConfig';
 
-const QUESTIONS = [
-  {
-    key: 'weeklyHours',
-    question: 'How many hours per week can you train?',
-    options: ['5-7', '8-10', '11-14', '15+'],
-  },
-  {
-    key: 'strongestDiscipline',
-    question: "What's your strongest discipline?",
-    options: ['Swim', 'Bike', 'Run', 'All equal'],
-  },
-  {
-    key: 'weakestDiscipline',
-    question: "What's your weakest discipline?",
-    options: ['Swim', 'Bike', 'Run', 'All equal'],
-  },
-  {
-    key: 'swimBackground',
-    question: 'Swimming background?',
-    options: ['Competitive', 'Comfortable', 'Learning', 'Survival mode'],
-  },
-  {
-    key: 'previousIronman',
-    question: 'Previous Ironman experience?',
-    options: ['First timer', '1-2 races', '3-5 races', '6+'],
-  },
-  {
-    key: 'injuries',
-    question: 'Any current injury concerns?',
-    options: ['None', 'Knee', 'Shoulder', 'Back', 'Other'],
-  },
-  {
-    key: 'goalTime',
-    question: "What's your target finish time?",
-    options: ['Sub 10h', '10-12h', '12-14h', '14-16h', 'Just finish'],
-  },
-];
+function buildQuestions(raceType, distance) {
+  const questions = [
+    {
+      key: 'raceType',
+      question: 'What type of race are you training for?',
+      options: ['Triathlon', 'Running'],
+    },
+    {
+      key: 'distance',
+      question: 'What distance?',
+      options: raceType ? getDistanceOptions(raceType) : ['Select race type first'],
+    },
+    {
+      key: 'weeklyHours',
+      question: 'How many hours per week can you train?',
+      options: ['5-7', '8-10', '11-14', '15+'],
+    },
+  ];
+
+  if (raceType === 'triathlon') {
+    questions.push(
+      {
+        key: 'strongestDiscipline',
+        question: "What's your strongest discipline?",
+        options: ['Swim', 'Bike', 'Run', 'All equal'],
+      },
+      {
+        key: 'weakestDiscipline',
+        question: "What's your weakest discipline?",
+        options: ['Swim', 'Bike', 'Run', 'All equal'],
+      },
+      {
+        key: 'swimBackground',
+        question: 'Swimming background?',
+        options: ['Competitive', 'Comfortable', 'Learning', 'Survival mode'],
+      }
+    );
+  }
+
+  const expQ = EXPERIENCE_OPTIONS[raceType] || EXPERIENCE_OPTIONS.triathlon;
+  questions.push(
+    { key: expQ.key, question: expQ.question, options: expQ.options },
+    {
+      key: 'injuries',
+      question: 'Any current injury concerns?',
+      options: ['None', 'Knee', 'Shoulder', 'Back', 'Other'],
+    },
+    {
+      key: 'goalTime',
+      question: "What's your target finish time?",
+      options: distance ? getGoalTimesForDistance(distance) : ['Just finish'],
+    }
+  );
+
+  return questions;
+}
 
 export default function OnboardingScreen({ onComplete }) {
   const { saveProfile } = useApp();
-  const [step, setStep] = useState(0); // 0 = date, 1-7 = questions
+  const [step, setStep] = useState(0);
   const [raceDate, setRaceDate] = useState(new Date());
   const [answers, setAnswers] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
+
+  const raceType = answers.raceType?.toLowerCase() || null;
+  const selectedDistance = answers.distance || null;
+
+  const questions = useMemo(
+    () => buildQuestions(raceType, selectedDistance),
+    [raceType, selectedDistance]
+  );
+
+  const totalSteps = 1 + questions.length;
 
   function handleDateChange(event, date) {
     if (Platform.OS === 'android') setShowDatePicker(false);
@@ -54,22 +88,42 @@ export default function OnboardingScreen({ onComplete }) {
   }
 
   function selectOption(key, value) {
-    setAnswers((prev) => ({ ...prev, [key]: value }));
-    if (step < QUESTIONS.length) {
+    const updated = { ...answers, [key]: value };
+
+    if (key === 'raceType') {
+      delete updated.distance;
+      delete updated.strongestDiscipline;
+      delete updated.weakestDiscipline;
+      delete updated.swimBackground;
+      delete updated.goalTime;
+    }
+
+    setAnswers(updated);
+
+    if (step < questions.length) {
       setStep(step + 1);
     } else {
-      finishOnboarding({ ...answers, [key]: value });
+      finishOnboarding(updated);
     }
   }
 
   async function finishOnboarding(finalAnswers) {
+    const rt = finalAnswers.raceType?.toLowerCase() || 'triathlon';
     const profile = {
       raceDate: raceDate.toISOString(),
-      distance: 'Full Ironman',
+      distance: finalAnswers.distance || 'Full Ironman (140.6)',
       level: 'Intermediate',
       ...finalAnswers,
+      raceType: rt,
       createdAt: new Date().toISOString(),
     };
+
+    if (rt === 'running') {
+      profile.strongestDiscipline = profile.strongestDiscipline || 'Run';
+      profile.weakestDiscipline = profile.weakestDiscipline || 'Run';
+      profile.swimBackground = profile.swimBackground || 'N/A';
+    }
+
     await saveProfile(profile);
     onComplete();
   }
@@ -82,7 +136,7 @@ export default function OnboardingScreen({ onComplete }) {
   if (step === 0) {
     return (
       <View style={styles.container}>
-        <Text style={styles.stepLabel}>STEP 1 OF {QUESTIONS.length + 1}</Text>
+        <Text style={styles.stepLabel}>STEP 1 OF {totalSteps}</Text>
         <Text style={styles.title}>When is your race?</Text>
         <Text style={styles.subtitle}>
           {"We'll build your periodized plan backwards from race day."}
@@ -121,21 +175,16 @@ export default function OnboardingScreen({ onComplete }) {
   }
 
   // Question steps
-  const q = QUESTIONS[step - 1];
+  const q = questions[step - 1];
 
   return (
     <View style={styles.container}>
       <Text style={styles.stepLabel}>
-        STEP {step + 1} OF {QUESTIONS.length + 1}
+        STEP {step + 1} OF {totalSteps}
       </Text>
 
       <View style={styles.progressBar}>
-        <View
-          style={[
-            styles.progressFill,
-            { width: `${((step + 1) / (QUESTIONS.length + 1)) * 100}%` },
-          ]}
-        />
+        <View style={[styles.progressFill, { width: `${((step + 1) / totalSteps) * 100}%` }]} />
       </View>
 
       <Text style={styles.title}>{q.question}</Text>

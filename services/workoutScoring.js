@@ -150,6 +150,115 @@ export function getCompletionFeedback(completionScore) {
   };
 }
 
+/**
+ * Find completed workouts from Apple Health that occurred yesterday.
+ */
+export function findYesterdayCompletedWorkouts(completedWorkouts) {
+  if (!completedWorkouts || completedWorkouts.length === 0) return [];
+  const yesterday = getYesterdayDateString();
+  return completedWorkouts.filter((w) => {
+    if (!w.startDate) return false;
+    return new Date(w.startDate).toDateString() === yesterday;
+  });
+}
+
+/**
+ * Score how well yesterday's Apple Health activity matched the prescribed workout.
+ * Compares discipline match and duration ratio.
+ * Returns 0-100 or null if no data.
+ */
+export function calculateDailyComplianceScore(prescribedWorkout, completedWorkouts) {
+  if (!prescribedWorkout) return null;
+  if (prescribedWorkout.discipline === 'rest') {
+    return !completedWorkouts || completedWorkouts.length === 0 ? 100 : 80;
+  }
+  if (!completedWorkouts || completedWorkouts.length === 0) return null;
+
+  const matching = completedWorkouts.filter((w) => w.discipline === prescribedWorkout.discipline);
+
+  if (matching.length === 0) return 20;
+
+  const totalMinutes = matching.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
+  const prescribedMinutes = prescribedWorkout.duration || 60;
+  const durationRatio = Math.min(totalMinutes / prescribedMinutes, 1.5);
+
+  const disciplineScore = 50;
+  const durationScore = Math.round(durationRatio * 50);
+
+  return clamp(disciplineScore + durationScore, 0, 100);
+}
+
+/**
+ * Score recent activity from Apple Health over the last N days.
+ * Considers session count and discipline variety.
+ * Returns 0-100 or null if no data.
+ */
+export function calculateRecentActivityScore(completedWorkouts, daysBack = 7) {
+  if (!completedWorkouts || completedWorkouts.length === 0) return null;
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - daysBack);
+  cutoff.setHours(0, 0, 0, 0);
+
+  const recent = completedWorkouts.filter((w) => {
+    if (!w.startDate) return false;
+    return new Date(w.startDate) >= cutoff;
+  });
+
+  if (recent.length === 0) return null;
+
+  const expectedSessions = Math.round((daysBack / 7) * 5);
+  const sessionScore = Math.min(recent.length / expectedSessions, 1) * 60;
+
+  const disciplines = new Set(recent.map((w) => w.discipline).filter(Boolean));
+  const varietyScore = Math.min(disciplines.size / 3, 1) * 40;
+
+  return clamp(Math.round(sessionScore + varietyScore), 0, 100);
+}
+
+/**
+ * Analyze which disciplines are under-trained based on Apple Health data.
+ * Returns an object with counts, gaps, and underTrained disciplines.
+ */
+export function analyzeDisciplineGaps(completedWorkouts, requiredDisciplines, daysBack = 14) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - daysBack);
+  cutoff.setHours(0, 0, 0, 0);
+
+  const recent = (completedWorkouts || []).filter((w) => {
+    if (!w.startDate) return false;
+    return new Date(w.startDate) >= cutoff;
+  });
+
+  const counts = {};
+  (requiredDisciplines || []).forEach((d) => {
+    counts[d] = 0;
+  });
+  recent.forEach((w) => {
+    if (w.discipline && counts[w.discipline] !== undefined) {
+      counts[w.discipline] += 1;
+    }
+  });
+
+  const gaps = {};
+  const underTrained = [];
+  const activeDisciplines = (requiredDisciplines || []).filter(
+    (d) => d !== 'rest' && d !== 'strength'
+  );
+
+  activeDisciplines.forEach((d) => {
+    const expected = Math.round((daysBack / 7) * 2);
+    const actual = counts[d] || 0;
+    const deficit = expected - actual;
+    if (deficit > 0) {
+      gaps[d] = deficit;
+      underTrained.push(d);
+    }
+  });
+
+  return { counts, gaps, underTrained };
+}
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }

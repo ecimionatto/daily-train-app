@@ -54,9 +54,11 @@ jest.mock('react-native-health', () => ({
   default: {
     initHealthKit: jest.fn((_, cb) => cb(null)),
     getRestingHeartRateSamples: jest.fn((_, cb) => cb(null, [])),
+    getRestingHeartRate: jest.fn((_, cb) => cb(null, null)),
     getHeartRateVariabilitySamples: jest.fn((_, cb) => cb(null, [])),
     getSleepSamples: jest.fn((_, cb) => cb(null, [])),
     getVo2MaxSamples: jest.fn((_, cb) => cb(null, [])),
+    getSamples: jest.fn((_, cb) => cb(null, [])),
   },
   HealthKitPermissions: {},
 }));
