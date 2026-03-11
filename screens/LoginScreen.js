@@ -72,6 +72,16 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </View>
 
+      {__DEV__ && (
+        <TouchableOpacity
+          style={styles.devButton}
+          onPress={() => signIn({ id: 'dev-user', name: 'Dev Athlete', email: 'dev@test.com' })}
+          disabled={loading}
+        >
+          <Text style={styles.devButtonText}>Dev Sign In (Simulator)</Text>
+        </TouchableOpacity>
+      )}
+
       <Text style={styles.disclaimer}>
         By signing in, you agree to our Terms of Service and Privacy Policy. Your health data stays
         on your device.
@@ -152,6 +162,20 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  devButton: {
+    backgroundColor: '#2a2a0e',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#444',
+    marginBottom: 16,
+  },
+  devButtonText: {
+    color: '#e8ff47',
+    fontSize: 14,
+    fontWeight: '600',
   },
   disclaimer: {
     color: '#555',

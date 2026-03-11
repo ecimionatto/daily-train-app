@@ -21,6 +21,26 @@ describe('classifyMessage', () => {
     expect(classifyMessage('This is too hard for me')).toBe('workout_modification');
   });
 
+  it('classifies workout inquiry questions', () => {
+    expect(classifyMessage('What is my workout today?')).toBe('workout_inquiry');
+    expect(classifyMessage("Show me today's workout")).toBe('workout_inquiry');
+    expect(classifyMessage('What should I do today?')).toBe('workout_inquiry');
+    expect(classifyMessage('What should I train today')).toBe('workout_inquiry');
+  });
+
+  it('classifies readiness inquiry questions', () => {
+    expect(classifyMessage('How am I doing?')).toBe('readiness_inquiry');
+    expect(classifyMessage('What is my readiness?')).toBe('readiness_inquiry');
+    expect(classifyMessage('Am I ready for the race?')).toBe('readiness_inquiry');
+  });
+
+  it('classifies schedule inquiry questions', () => {
+    expect(classifyMessage('When is my weights session?')).toBe('schedule_inquiry');
+    expect(classifyMessage('When do I swim next?')).toBe('schedule_inquiry');
+    expect(classifyMessage('What does this week look like?')).toBe('schedule_inquiry');
+    expect(classifyMessage('Which day is my strength session?')).toBe('schedule_inquiry');
+  });
+
   it('classifies recovery questions', () => {
     expect(classifyMessage('My HRV is low, should I rest?')).toBe('recovery');
     expect(classifyMessage('I feel really tired today')).toBe('recovery');
@@ -167,16 +187,90 @@ describe('generateFallbackResponse', () => {
     phase: 'BUILD',
     daysToRace: 45,
     healthData: { hrv: 55, restingHR: 54, sleepHours: 7.2 },
+    athleteProfile: { weakestDiscipline: 'Swim', raceType: 'triathlon' },
     todayWorkout: {
       title: 'Tempo Run',
       discipline: 'run',
       duration: 60,
       intensity: 'moderate',
+      summary: 'Build running speed with tempo intervals.',
+      sections: [
+        {
+          name: 'Warmup',
+          notes: 'Easy jog.',
+          sets: [{ description: '10 min easy jog', zone: 1 }],
+        },
+        {
+          name: 'Main Set',
+          notes: 'Tempo effort.',
+          sets: [{ description: '4x5 min at tempo, 2 min jog', zone: 3 }],
+        },
+      ],
     },
+    yesterdayScore: {
+      completionScore: 85,
+      feedback: { label: 'Solid session', message: 'Good execution.' },
+    },
+    overallReadiness: { overall: 72, health: 75, compliance: 70, racePrep: 68 },
+    workoutHistory: [
+      { discipline: 'run', title: 'Easy Run', completedSets: 4, totalSets: 4 },
+      { discipline: 'bike', title: 'Zone 2 Ride', completedSets: 3, totalSets: 3 },
+    ],
   };
+
+  it('returns workout details for workout_inquiry', () => {
+    const response = generateFallbackResponse('workout_inquiry', 'what is my workout', context);
+    expect(response).toContain('Tempo Run');
+    expect(response).toContain('60-minute');
+    expect(response).toContain('run');
+    expect(response).toContain('moderate');
+  });
+
+  it('returns workout sections for workout_inquiry', () => {
+    const response = generateFallbackResponse('workout_inquiry', 'what is my workout', context);
+    expect(response).toContain('Main Set');
+    expect(response).toContain('4x5 min');
+  });
+
+  it('handles missing workout for workout_inquiry', () => {
+    const noWorkoutCtx = { ...context, todayWorkout: null };
+    const response = generateFallbackResponse(
+      'workout_inquiry',
+      'what is my workout',
+      noWorkoutCtx
+    );
+    expect(response).toContain('Dashboard');
+  });
+
+  it('returns readiness breakdown for readiness_inquiry', () => {
+    const response = generateFallbackResponse('readiness_inquiry', 'how am i', context);
+    expect(response).toContain('72/100');
+    expect(response).toContain('Health: 75');
+    expect(response).toContain('compliance: 70');
+  });
+
+  it('includes health metrics in readiness_inquiry', () => {
+    const response = generateFallbackResponse('readiness_inquiry', 'how am i', context);
+    expect(response).toContain('55ms');
+    expect(response).toContain('54bpm');
+  });
+
+  it('returns weekly schedule for schedule_inquiry', () => {
+    const response = generateFallbackResponse(
+      'schedule_inquiry',
+      'when is my weights session',
+      context
+    );
+    expect(response).toContain('weekly schedule');
+    expect(response).toContain('Monday');
+    expect(response).toContain('Sunday');
+  });
 
   it('returns a non-empty string for each category', () => {
     const categories = [
+      'workout_inquiry',
+      'schedule_inquiry',
+      'readiness_inquiry',
       'training_plan',
       'workout_modification',
       'workout_swap',
@@ -202,10 +296,10 @@ describe('generateFallbackResponse', () => {
     expect(response).toContain('Tempo Run');
   });
 
-  it('handles missing workout gracefully', () => {
-    const noWorkoutCtx = { ...context, todayWorkout: null };
-    const response = generateFallbackResponse('workout_modification', 'change it', noWorkoutCtx);
-    expect(response).toContain('Dashboard');
+  it('references today workout in general responses', () => {
+    const response = generateFallbackResponse('general', 'hello', context);
+    expect(response).toContain('Tempo Run');
+    expect(response).toContain('72/100');
   });
 
   it('gives race-week specific nutrition advice', () => {

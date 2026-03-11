@@ -11,6 +11,7 @@ import {
   calculateOverallReadiness,
   getCompletionFeedback,
 } from '../services/workoutScoring';
+import { initLocalModel, isModelReady, onModelProgress } from '../services/localModel';
 
 const AppContext = createContext();
 
@@ -28,6 +29,8 @@ export function AppProvider({ children }) {
   const [overallReadiness, setOverallReadiness] = useState(null);
   const [workoutHistory, setWorkoutHistory] = useState([]);
   const [completedWorkouts, setCompletedWorkouts] = useState([]);
+  const [modelStatus, setModelStatus] = useState('idle');
+  const [modelProgress, setModelProgress] = useState(0);
 
   useEffect(() => {
     loadProfile();
@@ -40,6 +43,7 @@ export function AppProvider({ children }) {
       loadCachedWorkout();
       loadWorkoutHistory();
       loadCompletedWorkouts();
+      loadLocalModel();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [athleteProfile]);
@@ -78,6 +82,22 @@ export function AppProvider({ children }) {
       setReadinessScore(score);
     } catch (e) {
       console.warn('Failed to load health data:', e);
+    }
+  }
+
+  async function loadLocalModel() {
+    if (isModelReady()) {
+      setModelStatus('ready');
+      return;
+    }
+    setModelStatus('downloading');
+    onModelProgress((pct) => setModelProgress(pct));
+    try {
+      const ok = await initLocalModel();
+      setModelStatus(ok ? 'ready' : 'error');
+    } catch (e) {
+      console.warn('Failed to load AI model:', e);
+      setModelStatus('error');
     }
   }
 
@@ -248,6 +268,8 @@ export function AppProvider({ children }) {
     loadWorkoutHistory,
     completedWorkouts,
     loadCompletedWorkouts,
+    modelStatus,
+    modelProgress,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

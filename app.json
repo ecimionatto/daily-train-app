@@ -21,6 +21,16 @@
         "com.apple.developer.healthkit.background-delivery": true
       }
     },
-    "plugins": []
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "newArchEnabled": false
+          }
+        }
+      ],
+      "./plugins/withLlamaRN.js"
+    ]
   }
 }

@@ -10,4 +10,5 @@ if [ -n "$STAGED_FILES" ]; then
   fi
 fi
 
+export PATH="$HOME/.local/share/mise/installs/node/20.19.4/bin:$PATH"
 npx lint-staged

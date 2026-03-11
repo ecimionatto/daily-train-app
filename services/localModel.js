@@ -1,69 +1,167 @@
 /**
- * Local on-device AI inference using Qwen 3.5 (0.6B quantized)
+ * Local on-device AI inference using llama.rn (llama.cpp React Native bindings).
  *
- * This service runs Qwen 3.5 locally on iPhone using llama.cpp via a
- * React Native native module bridge. No API calls needed — all inference
+ * Runs a quantized GGUF model locally on the device. All inference
  * happens on-device for privacy and offline capability.
  *
- * SETUP REQUIRED:
- * 1. Eject from Expo: npx expo prebuild --platform ios
- * 2. Add the llama.cpp Swift bridge (see ios/DailyTrain/LlamaModule.swift)
- * 3. Download the quantized Qwen 3.5 model (~400MB for Q4_K_M):
- *    https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
- * 4. Place the .gguf file in the app bundle or download on first launch
- *
- * Until the native module is built, this falls back to a rule-based
- * workout generator that works without any model.
+ * The model is downloaded on first launch (~1.3GB for Qwen 3.5 2B Q4_K_M)
+ * and cached in the app's document directory.
  */
 
-import { NativeModules, Platform } from 'react-native';
+import RNFS from 'react-native-fs';
+import { initLlama } from 'llama.rn';
 import { isRunningOnly, getDisciplinesForProfile } from './raceConfig';
 
-const { LlamaModule } = NativeModules;
+const MODEL_FILENAME = 'Qwen3.5-2B-Q4_K_M.gguf';
+const MODEL_URL =
+  'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf';
+const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '<|end|>'];
 
+let llamaContext = null;
 let modelLoaded = false;
+let loadingProgress = 0;
+let onProgressCallback = null;
 
 /**
- * Initialize the local model. Call once on app start.
- * Downloads the model if not cached, loads it into memory.
+ * Get the local file path for the model.
  */
-export async function initLocalModel() {
-  if (Platform.OS !== 'ios' || !LlamaModule) {
-    console.warn('Local model only available on iOS with native module');
-    return false;
-  }
+function getModelPath() {
+  return `${RNFS.DocumentDirectoryPath}/${MODEL_FILENAME}`;
+}
 
+/**
+ * Register a callback to receive model download/load progress (0-100).
+ */
+export function onModelProgress(callback) {
+  onProgressCallback = callback;
+}
+
+/**
+ * Check if the model file exists on device.
+ */
+export async function isModelDownloaded() {
+  const exists = await RNFS.exists(getModelPath());
+  if (!exists) return false;
+  const stat = await RNFS.stat(getModelPath());
+  return stat.size > 0;
+}
+
+/**
+ * Download the model file to device storage.
+ */
+export async function downloadModel() {
+  const modelPath = getModelPath();
+  const downloaded = await isModelDownloaded();
+  if (downloaded) return true;
+
+  // eslint-disable-next-line no-console
+  console.log('Model not found on device, downloading...');
   try {
-    const result = await LlamaModule.loadModel('qwen3.5-0.6b-q4_k_m.gguf');
-    modelLoaded = result;
-    return result;
+    const result = await RNFS.downloadFile({
+      fromUrl: MODEL_URL,
+      toFile: modelPath,
+      background: true,
+      discretionary: false,
+      progress: (res) => {
+        const pct = Math.round((res.bytesWritten / res.contentLength) * 100);
+        loadingProgress = pct;
+        if (onProgressCallback) onProgressCallback(pct);
+      },
+      progressDivider: 5,
+    }).promise;
+    return result.statusCode === 200;
   } catch (e) {
-    console.warn('Failed to load local model:', e);
+    console.warn('Model download failed:', e);
+    await RNFS.unlink(modelPath).catch(() => {});
     return false;
   }
 }
 
 /**
- * Run inference on the local Qwen 3.5 model.
- * Falls back to rule-based generation if model isn't available.
+ * Initialize the local model. Downloads if needed, then loads into memory.
+ * Returns true if model is ready for inference.
+ */
+export async function initLocalModel() {
+  if (modelLoaded && llamaContext) return true;
+
+  try {
+    const downloaded = await isModelDownloaded();
+    if (!downloaded) {
+      // eslint-disable-next-line no-console
+      console.log('Model not found on device, downloading...');
+      const ok = await downloadModel();
+      if (!ok) {
+        console.warn('Model download failed, falling back to rule-based');
+        return false;
+      }
+    }
+
+    const modelPath = getModelPath();
+    llamaContext = await initLlama(
+      {
+        model: modelPath,
+        n_ctx: 2048,
+        n_gpu_layers: 99,
+        n_threads: 4,
+        use_mlock: true,
+      },
+      (progress) => {
+        const pct = Math.round(progress * 100);
+        loadingProgress = pct;
+        if (onProgressCallback) onProgressCallback(pct);
+      }
+    );
+
+    modelLoaded = true;
+    // eslint-disable-next-line no-console
+    console.log('Local LLM loaded successfully');
+    return true;
+  } catch (e) {
+    console.warn('Failed to initialize local model:', e);
+    modelLoaded = false;
+    llamaContext = null;
+    return false;
+  }
+}
+
+/**
+ * Get the current model loading progress (0-100).
+ */
+export function getModelLoadingProgress() {
+  return loadingProgress;
+}
+
+/**
+ * Check if the model is ready for inference.
+ */
+export function isModelReady() {
+  return modelLoaded && llamaContext !== null;
+}
+
+/**
+ * Run inference using the local llama.rn model.
+ * Returns the generated text or null if model isn't available.
  */
 export async function runInference(systemPrompt, userPrompt) {
-  if (modelLoaded && LlamaModule) {
-    try {
-      const response = await LlamaModule.generate({
-        system: systemPrompt,
-        user: userPrompt,
-        maxTokens: 1024,
-        temperature: 0.7,
-        topP: 0.9,
-      });
-      return response;
-    } catch (e) {
-      console.warn('Local model inference failed:', e);
-      return null;
-    }
+  if (!modelLoaded || !llamaContext) return null;
+
+  try {
+    const result = await llamaContext.completion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      n_predict: 512,
+      stop: STOP_WORDS,
+      temperature: 0.7,
+      top_p: 0.9,
+      top_k: 40,
+    });
+    return result.text || null;
+  } catch (e) {
+    console.warn('Local model inference failed:', e);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -300,7 +398,12 @@ function inferReplacementParams(reason) {
     lower.includes('tired') ||
     lower.includes('exhaust') ||
     lower.includes('fatigue') ||
-    lower.includes('sore')
+    lower.includes('sore') ||
+    lower.includes('sick') ||
+    lower.includes('ill') ||
+    lower.includes('unwell') ||
+    lower.includes('not rested') ||
+    lower.includes('not feeling')
   ) {
     maxIntensity = 'easy';
   }
@@ -480,7 +583,7 @@ function generateRuleBasedWorkout({
   return buildWorkout(todayPlan, adjustedDuration, score, phase, profile);
 }
 
-function getWeeklyDisciplinePlan(phase, profile) {
+export function getWeeklyDisciplinePlan(phase, profile) {
   if (isRunningOnly(profile)) {
     return getRunningWeekPlan(phase);
   }

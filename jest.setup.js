@@ -49,6 +49,26 @@ jest.mock('expo-web-browser', () => ({
   maybeCompleteAuthSession: jest.fn(),
 }));
 
+// react-native-fs mock
+jest.mock('react-native-fs', () => ({
+  DocumentDirectoryPath: '/mock/documents',
+  exists: jest.fn().mockResolvedValue(false),
+  stat: jest.fn().mockResolvedValue({ size: 0 }),
+  downloadFile: jest.fn(() => ({
+    promise: Promise.resolve({ statusCode: 200 }),
+  })),
+  unlink: jest.fn().mockResolvedValue(undefined),
+}));
+
+// llama.rn mock
+jest.mock('llama.rn', () => ({
+  initLlama: jest.fn().mockResolvedValue({
+    completion: jest.fn().mockResolvedValue({ text: null }),
+    release: jest.fn().mockResolvedValue(undefined),
+  }),
+  releaseAllLlama: jest.fn().mockResolvedValue(undefined),
+}));
+
 // react-native-health mock
 jest.mock('react-native-health', () => ({
   default: {

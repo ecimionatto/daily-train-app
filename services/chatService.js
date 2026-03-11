@@ -1,5 +1,5 @@
 import { runInference } from './localModel';
-import { generateReplacementWorkout } from './localModel';
+import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
 
 const TRAINING_KEYWORDS = [
@@ -463,7 +463,6 @@ export function classifyMessage(message) {
       key: 'workout_modification',
       keywords: [
         'modify',
-        'change',
         'swap',
         'shorter',
         'longer',
@@ -475,6 +474,57 @@ export function classifyMessage(message) {
         'too hard',
         'too easy',
         'can i do',
+      ],
+    },
+    {
+      key: 'workout_inquiry',
+      keywords: [
+        'what is my workout',
+        'what workout',
+        "today's workout",
+        'what should i do today',
+        'what do i do today',
+        'what am i doing today',
+        'workout today',
+        'session today',
+        'training today',
+        'what should i train',
+        'what do i train',
+        'tell me my workout',
+        'show me my workout',
+        'my workout',
+      ],
+    },
+    {
+      key: 'schedule_inquiry',
+      keywords: [
+        'when is my',
+        'when do i',
+        'what day is',
+        'which day',
+        'when is the',
+        'weights session',
+        'strength session',
+        'next swim',
+        'next bike',
+        'next run',
+        'next rest',
+        'weekly schedule',
+        'week look like',
+        'this week',
+      ],
+    },
+    {
+      key: 'readiness_inquiry',
+      keywords: [
+        'readiness',
+        'how am i doing',
+        'how am i',
+        'my score',
+        'my status',
+        'am i ready',
+        'how is my progress',
+        'progress',
       ],
     },
     {
@@ -530,6 +580,7 @@ export function classifyMessage(message) {
         'build',
         'long run',
         'brick',
+        'change',
       ],
     },
   ];
@@ -544,9 +595,19 @@ export function classifyMessage(message) {
 
 /**
  * Generate a rule-based response without any model.
+ * Every response must reference actual athlete data — never generic introductions.
  */
 export function generateFallbackResponse(category, _userMessage, context) {
-  const { readinessScore, phase, daysToRace, healthData, todayWorkout } = context;
+  const {
+    readinessScore,
+    phase,
+    daysToRace,
+    healthData,
+    todayWorkout,
+    yesterdayScore,
+    overallReadiness,
+    workoutHistory,
+  } = context;
   const score = readinessScore || 65;
   const phaseLabels = {
     BASE: 'base building',
@@ -558,8 +619,19 @@ export function generateFallbackResponse(category, _userMessage, context) {
   const phaseName = phaseLabels[phase] || 'base building';
 
   switch (category) {
+    case 'workout_inquiry':
+      return buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName);
+    case 'schedule_inquiry':
+      return buildScheduleInquiryResponse(context);
+    case 'readiness_inquiry':
+      return buildReadinessInquiryResponse(
+        overallReadiness,
+        healthData,
+        yesterdayScore,
+        daysToRace
+      );
     case 'training_plan':
-      return buildTrainingPlanResponse(phaseName, daysToRace, score);
+      return buildTrainingPlanResponse(phaseName, daysToRace, score, workoutHistory);
     case 'workout_swap':
     case 'workout_modification':
       return buildWorkoutModResponse(todayWorkout, score);
@@ -570,28 +642,174 @@ export function generateFallbackResponse(category, _userMessage, context) {
     case 'race_strategy':
       return buildRaceStrategyResponse(phase, daysToRace);
     default:
-      return buildGeneralResponse(phaseName, score, daysToRace);
+      return buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yesterdayScore);
   }
 }
 
-function buildTrainingPlanResponse(phaseName, daysToRace, score) {
-  let response = `You're currently in the ${phaseName} phase`;
-  if (daysToRace !== null && daysToRace !== undefined) {
-    response += ` with ${daysToRace} days until race day`;
+function buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName) {
+  if (!todayWorkout) {
+    return "Your workout hasn't been generated yet. Head to the Dashboard and it will load your session for today.";
   }
-  response += '. ';
+
+  const parts = [];
+  parts.push(
+    `Today you have: ${todayWorkout.title} — a ${todayWorkout.duration}-minute ${todayWorkout.discipline} session at ${todayWorkout.intensity} intensity.`
+  );
+
+  if (todayWorkout.summary) {
+    parts.push(todayWorkout.summary);
+  }
+
+  if (todayWorkout.sections && todayWorkout.sections.length > 0) {
+    const sectionNames = todayWorkout.sections.map((s) => s.name).join(', ');
+    parts.push(`The session has ${todayWorkout.sections.length} parts: ${sectionNames}.`);
+
+    const mainSet = todayWorkout.sections.find(
+      (s) => s.name.toLowerCase().includes('main') || s.name.toLowerCase().includes('set')
+    );
+    if (mainSet && mainSet.sets) {
+      const setDescriptions = mainSet.sets.map((s) => s.description).join('; ');
+      parts.push(`Main set: ${setDescriptions}.`);
+    }
+  }
 
   if (score >= 75) {
-    response +=
-      'Your readiness is high, so this is a great time for quality sessions. Focus on discipline-specific work and one key session per discipline this week.';
-  } else if (score >= 55) {
-    response +=
-      'Your readiness is moderate. Keep the majority of your training in Zone 2 and limit high-intensity efforts to 1-2 sessions this week.';
-  } else {
-    response +=
-      'Your readiness is low right now. Consider reducing volume by 20-30% this week and prioritizing sleep and nutrition before pushing harder.';
+    parts.push('Your readiness is strong — push hard and make this one count!');
+  } else if (score < 55) {
+    parts.push(
+      'Your readiness is low today. Consider taking it easier than prescribed or switching to recovery.'
+    );
   }
-  return response;
+
+  if (daysToRace !== null && daysToRace !== undefined) {
+    parts.push(`${daysToRace} days to race — you're in ${phaseName} phase.`);
+  }
+
+  return parts.join(' ');
+}
+
+function buildScheduleInquiryResponse(context) {
+  const { athleteProfile, phase } = context;
+  const profile = athleteProfile || {};
+  const weekPlan = getWeeklyDisciplinePlan(phase || 'BASE', profile);
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const schedule = weekPlan.map((discipline, i) => `${dayNames[i]}: ${discipline}`).join(', ');
+
+  const parts = [];
+  parts.push(
+    `Here's your weekly schedule for the ${(phase || 'BASE').toLowerCase().replace('_', ' ')} phase:`
+  );
+  parts.push(schedule + '.');
+
+  const strengthDay = weekPlan.indexOf('strength');
+  if (strengthDay >= 0) {
+    parts.push(`Your strength/weights session is on ${dayNames[strengthDay]}.`);
+  } else {
+    parts.push(
+      'There is no dedicated strength session in your current plan. You may want to add one for injury prevention.'
+    );
+  }
+
+  const today = new Date().getDay();
+  const todayDiscipline = weekPlan[today];
+  parts.push(`Today (${dayNames[today]}) is ${todayDiscipline}.`);
+
+  return parts.join(' ');
+}
+
+function buildReadinessInquiryResponse(overallReadiness, healthData, yesterdayScore, daysToRace) {
+  const parts = [];
+
+  if (overallReadiness) {
+    parts.push(`Your overall readiness is ${overallReadiness.overall}/100.`);
+    parts.push(
+      `Breakdown — Health: ${overallReadiness.health}/100, Training compliance: ${overallReadiness.compliance}/100, Race preparation: ${overallReadiness.racePrep}/100.`
+    );
+  }
+
+  if (healthData) {
+    const metrics = [];
+    if (healthData.hrv) metrics.push(`HRV ${healthData.hrv}ms`);
+    if (healthData.restingHR) metrics.push(`resting HR ${healthData.restingHR}bpm`);
+    if (healthData.sleepHours) metrics.push(`${healthData.sleepHours.toFixed(1)}h sleep`);
+    if (metrics.length > 0) {
+      parts.push(`Today's metrics: ${metrics.join(', ')}.`);
+    }
+  }
+
+  if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
+    parts.push(
+      `Yesterday you completed ${yesterdayScore.completionScore}% of your workout. ${yesterdayScore.feedback?.message || ''}`
+    );
+  }
+
+  if (daysToRace !== null && daysToRace !== undefined) {
+    parts.push(`You have ${daysToRace} days until race day.`);
+  }
+
+  if (overallReadiness?.overall >= 75) {
+    parts.push('You are in a good spot — keep the momentum going!');
+  } else if (overallReadiness?.overall < 55) {
+    parts.push(
+      'Your readiness needs attention. Focus on sleep, nutrition, and recovery to bounce back.'
+    );
+  }
+
+  return (
+    parts.join(' ') ||
+    "I don't have enough data to assess your readiness yet. Complete a few workouts and sync your health data so I can give you a proper score."
+  );
+}
+
+function buildTrainingPlanResponse(phaseName, daysToRace, score, workoutHistory) {
+  const parts = [];
+  parts.push(`You're in the ${phaseName} phase`);
+  if (daysToRace !== null && daysToRace !== undefined) {
+    parts.push(`with ${daysToRace} days until race day`);
+  }
+  parts[parts.length - 1] += '.';
+
+  if (workoutHistory && workoutHistory.length > 0) {
+    const recent = workoutHistory.slice(-7);
+    const disciplines = {};
+    recent.forEach((w) => {
+      const d = w.discipline?.toLowerCase() || 'other';
+      disciplines[d] = (disciplines[d] || 0) + 1;
+    });
+    const breakdown = Object.entries(disciplines)
+      .map(([d, count]) => `${count} ${d}`)
+      .join(', ');
+    parts.push(`This week you've done ${recent.length} sessions: ${breakdown}.`);
+
+    const hasBike = disciplines.bike || 0;
+    const hasSwim = disciplines.swim || 0;
+    const hasRun = disciplines.run || 0;
+    const missing = [];
+    if (hasBike === 0) missing.push('bike');
+    if (hasSwim === 0) missing.push('swim');
+    if (hasRun === 0) missing.push('run');
+    if (missing.length > 0) {
+      parts.push(
+        `You're missing ${missing.join(' and ')} — try to fit ${missing.length > 1 ? 'those' : 'that'} in.`
+      );
+    }
+  }
+
+  if (score >= 75) {
+    parts.push(
+      'Your readiness is high, so this is a great time for quality sessions. Focus on one key session per discipline.'
+    );
+  } else if (score >= 55) {
+    parts.push(
+      'Your readiness is moderate. Keep most training in Zone 2 and limit high-intensity to 1-2 sessions.'
+    );
+  } else {
+    parts.push(
+      'Your readiness is low. Consider reducing volume by 20-30% and prioritizing sleep and nutrition.'
+    );
+  }
+  return parts.join(' ');
 }
 
 function buildWorkoutModResponse(todayWorkout, score) {
@@ -664,13 +882,36 @@ function buildRaceStrategyResponse(phase, daysToRace) {
   return response;
 }
 
-function buildGeneralResponse(phaseName, score, daysToRace) {
-  let response = `Hey! I'm your AI endurance coach. You're in the ${phaseName} phase`;
-  if (daysToRace !== null && daysToRace !== undefined) {
-    response += ` with ${daysToRace} days to race`;
+function buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yesterdayScore) {
+  const parts = [];
+
+  if (todayWorkout) {
+    parts.push(
+      `Today's session is ${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min, ${todayWorkout.intensity}).`
+    );
   }
-  response += `. Your readiness today is ${score}/100. `;
-  response +=
-    "Ask me about your training plan, workout modifications, recovery, nutrition, or race strategy. I can also swap your workout if you need something different today. Let's get after it!";
-  return response;
+
+  parts.push(`Your readiness is ${score}/100 and you're in the ${phaseName} phase.`);
+
+  if (daysToRace !== null && daysToRace !== undefined) {
+    parts.push(`${daysToRace} days to race.`);
+  }
+
+  if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
+    parts.push(`Yesterday's completion: ${yesterdayScore.completionScore}%.`);
+  }
+
+  if (score >= 75) {
+    parts.push("You're in great shape — stay consistent and follow the plan!");
+  } else if (score < 55) {
+    parts.push(
+      "Your body needs some attention. Prioritize recovery today and don't push too hard."
+    );
+  } else {
+    parts.push(
+      'Stay the course. Ask me about your workout, recovery, nutrition, or race strategy.'
+    );
+  }
+
+  return parts.join(' ');
 }
