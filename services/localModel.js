@@ -71,7 +71,8 @@ export async function downloadModel() {
     }).promise;
     return result.statusCode === 200;
   } catch (e) {
-    console.warn('Model download failed:', e);
+    // eslint-disable-next-line no-console
+    console.log('Model download error:', e.message || e);
     await RNFS.unlink(modelPath).catch(() => {});
     return false;
   }
@@ -91,7 +92,8 @@ export async function initLocalModel() {
       console.log('Model not found on device, downloading...');
       const ok = await downloadModel();
       if (!ok) {
-        console.warn('Model download failed, falling back to rule-based');
+        // eslint-disable-next-line no-console
+        console.log('Model download failed, falling back to rule-based responses');
         return false;
       }
     }
@@ -117,7 +119,8 @@ export async function initLocalModel() {
     console.log('Local LLM loaded successfully');
     return true;
   } catch (e) {
-    console.warn('Failed to initialize local model:', e);
+    // eslint-disable-next-line no-console
+    console.log('Failed to initialize local model:', e.message || e);
     modelLoaded = false;
     llamaContext = null;
     return false;

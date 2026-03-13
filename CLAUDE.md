@@ -38,6 +38,29 @@ React Native (Expo 50) Ironman triathlon training app for iPhone. On-device AI (
 - Every AI feature must have a rule-based fallback (works offline)
 - AsyncStorage keys: `authUser`, `athleteProfile`, `todayWorkout`, `workoutHistory`, `chatConversation`
 
+## Apple Health / Fitness Sync
+
+Completed workouts from Apple Health must be refreshed in these scenarios:
+
+1. **App loading** — `loadCompletedWorkouts()` runs when `athleteProfile` is loaded (AppContext)
+2. **Plan changes** — any workout swap, profile update (race date change), or training plan modification must trigger `loadCompletedWorkouts()` to keep data current
+3. **Coach interactions** — when the coach chat handles workout-related queries (completed workouts, readiness, weekly reviews), ensure the context includes fresh `completedWorkouts` data
+4. **On-demand** — Dashboard pull-to-refresh and the SYNC button both call `loadCompletedWorkouts()`
+
+The data source is `fetchCompletedWorkouts()` in `services/healthKit.js` (reads from HealthKit on device, returns mock data on simulator).
+
+## Adaptive Training Plan
+
+The training plan must be continuously evaluated and adapted based on:
+
+1. **Completed workouts** — compare prescribed vs actual (discipline, duration, intensity) from Apple Health. If the athlete consistently misses a discipline or underperforms, adjust upcoming workouts accordingly.
+2. **Health data trends** — readiness score, HRV, resting HR, and sleep trends should influence workout intensity and volume. Low readiness = reduce load; high readiness = push harder.
+3. **Coach conversations** — when the athlete reports fatigue, injury, motivation issues, or requests changes through chat, the coach should factor this into future workout generation and recommendations.
+4. **Weekly reviews** — Sunday evening auto-review (`generateWeeklyReview`) must analyze the full week's compliance, discipline balance, and health trends, then suggest concrete adjustments for the next week.
+5. **Race proximity** — as race day approaches, training phases (BASE → BUILD → PEAK → TAPER → RACE_WEEK) must shift focus from volume to intensity to recovery, with the plan adapting if the athlete is behind or ahead of schedule.
+
+The workout generation (`generateWorkoutLocally`) and coach responses (`getCoachResponse`) must always consider the athlete's recent history, not just the current day's data.
+
 ## Pre-commit
 
 Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js` files. Secret detection blocks hardcoded API keys/tokens.

@@ -174,6 +174,11 @@ export async function getCoachResponse(userMessage, context, conversationHistory
 
   const category = classifyMessage(userMessage);
 
+  // Handle profile changes (race date, goals)
+  if (category === 'profile_change' && context.onProfileUpdate) {
+    return handleProfileChange(userMessage, context);
+  }
+
   // Handle workout swap requests
   if (
     (category === 'workout_swap' || category === 'workout_modification') &&
@@ -222,6 +227,84 @@ async function handleWorkoutSwap(userMessage, context) {
   // Fallback: give advice without swapping
   const score = readinessScore || 65;
   return buildWorkoutModResponse(todayWorkout, score);
+}
+
+/**
+ * Handle a profile change request (e.g. race date update).
+ */
+async function handleProfileChange(userMessage, context) {
+  const { athleteProfile, onProfileUpdate } = context;
+  const dateMatch = parseRaceDateFromMessage(userMessage);
+
+  if (dateMatch) {
+    const updated = { ...athleteProfile, raceDate: dateMatch.toISOString() };
+    await onProfileUpdate(updated);
+    const formatted = dateMatch.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const daysOut = Math.ceil((dateMatch - new Date()) / (24 * 60 * 60 * 1000));
+    return `Done! I've updated your race date to ${formatted}. That's ${daysOut} days from now. Your training phases and workout plan will adjust automatically. Let's make every session count!`;
+  }
+
+  return "I'd like to update your race date but I couldn't parse the date from your message. Try something like 'Change my race day to September 28' or 'My race is on March 15, 2027'.";
+}
+
+/**
+ * Parse a date from a user message about race day changes.
+ */
+function parseRaceDateFromMessage(message) {
+  const months = {
+    january: 0,
+    february: 1,
+    march: 2,
+    april: 3,
+    may: 4,
+    june: 5,
+    july: 6,
+    august: 7,
+    september: 8,
+    october: 9,
+    november: 10,
+    december: 11,
+    jan: 0,
+    feb: 1,
+    mar: 2,
+    apr: 3,
+    jun: 5,
+    jul: 6,
+    aug: 7,
+    sep: 8,
+    oct: 9,
+    nov: 10,
+    dec: 11,
+  };
+
+  // Match "September 28", "Sep 28 2026", "March 15, 2027"
+  const pattern =
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i;
+  const match = message.match(pattern);
+  if (match) {
+    const month = months[match[1].toLowerCase()];
+    const day = parseInt(match[2], 10);
+    const year = match[3] ? parseInt(match[3], 10) : guessYear(month, day);
+    const date = new Date(year, month, day);
+    if (!isNaN(date.getTime()) && date > new Date()) return date;
+    // If date is in the past without a year, try next year
+    if (!match[3] && date <= new Date()) {
+      const nextYear = new Date(year + 1, month, day);
+      if (!isNaN(nextYear.getTime())) return nextYear;
+    }
+  }
+  return null;
+}
+
+function guessYear(month, day) {
+  const now = new Date();
+  const thisYear = new Date(now.getFullYear(), month, day);
+  return thisYear > now ? now.getFullYear() : now.getFullYear() + 1;
 }
 
 /**
@@ -446,6 +529,21 @@ export function classifyMessage(message) {
   const lower = message.toLowerCase();
   const categories = [
     {
+      key: 'profile_change',
+      keywords: [
+        'change my race',
+        'move my race',
+        'race date',
+        'race day to',
+        'change my goal',
+        'update my',
+        'set my race',
+        'my race is on',
+        'race is in',
+        'racing on',
+      ],
+    },
+    {
       key: 'workout_swap',
       keywords: [
         'different workout',
@@ -474,6 +572,35 @@ export function classifyMessage(message) {
         'too hard',
         'too easy',
         'can i do',
+      ],
+    },
+    {
+      key: 'completed_workout',
+      keywords: [
+        'finish yesterday',
+        'finished yesterday',
+        'did yesterday',
+        'completed yesterday',
+        'done yesterday',
+        'yesterday workout',
+        'yesterday session',
+        'workouts i finish',
+        'workouts i did',
+        'workouts i completed',
+        'i finish yesterday',
+        'i did yesterday',
+        'i completed yesterday',
+        'last workout',
+        'past workout',
+        'recent workout',
+        'workout history',
+        'what did i do',
+        'what have i done',
+        'how did i do',
+        'my activity',
+        'recent activity',
+        'completed workouts',
+        'finished workouts',
       ],
     },
     {
@@ -619,6 +746,10 @@ export function generateFallbackResponse(category, _userMessage, context) {
   const phaseName = phaseLabels[phase] || 'base building';
 
   switch (category) {
+    case 'profile_change':
+      return "I'd like to update your profile but I couldn't process the change. Try being specific, like 'Change my race day to September 28'.";
+    case 'completed_workout':
+      return buildCompletedWorkoutResponse(workoutHistory, yesterdayScore);
     case 'workout_inquiry':
       return buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName);
     case 'schedule_inquiry':
@@ -644,6 +775,60 @@ export function generateFallbackResponse(category, _userMessage, context) {
     default:
       return buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yesterdayScore);
   }
+}
+
+function buildCompletedWorkoutResponse(workoutHistory, yesterdayScore) {
+  const parts = [];
+
+  // Yesterday's specific data
+  if (yesterdayScore) {
+    const allWorkouts = yesterdayScore.allWorkouts || [yesterdayScore.completedWorkout];
+    if (allWorkouts.length === 1) {
+      const w = allWorkouts[0];
+      parts.push(
+        `Yesterday you completed a ${w?.discipline || 'workout'} session${w?.duration ? ` (${w.duration}min)` : ''}${w?.title ? `: ${w.title}` : ''}.`
+      );
+    } else {
+      parts.push(`Yesterday you completed ${allWorkouts.length} workouts:`);
+      allWorkouts.forEach((w) => {
+        parts.push(
+          `- ${w?.discipline?.charAt(0).toUpperCase()}${w?.discipline?.slice(1)}: ${w?.duration || '?'}min`
+        );
+      });
+    }
+    parts.push(
+      `Completion score: ${yesterdayScore.completionScore}%. ${yesterdayScore.feedback?.message || yesterdayScore.feedback?.label || ''}`
+    );
+  } else {
+    parts.push(
+      "I don't have a recorded workout for yesterday. It may have been a rest day, or the data hasn't synced from Apple Health yet."
+    );
+  }
+
+  // Recent history
+  if (workoutHistory && workoutHistory.length > 0) {
+    const recent = workoutHistory.slice(-7);
+    parts.push(`Here's your recent activity (last ${recent.length} sessions):`);
+    recent.forEach((w) => {
+      const date = w.startDate
+        ? new Date(w.startDate).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+          })
+        : 'unknown date';
+      const duration = w.durationMinutes || w.duration || '?';
+      parts.push(
+        `- ${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)}: ${duration}min (${date})`
+      );
+    });
+  }
+
+  if (parts.length === 0) {
+    return "I don't have any completed workout data yet. Try syncing from Apple Health on the Dashboard, or complete a workout so I can track your progress!";
+  }
+
+  return parts.join('\n');
 }
 
 function buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName) {

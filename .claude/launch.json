@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "expo-dev",
-      "runtimeExecutable": "/Users/edson.cimionatto/.local/share/mise/installs/node/20.19.4/bin/npx",
-      "runtimeArgs": ["expo", "start", "--port", "8081"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-c", "eval \"$($HOME/.local/bin/mise activate zsh)\" && npx expo start --port 8081"],
       "port": 8081
     }
   ]

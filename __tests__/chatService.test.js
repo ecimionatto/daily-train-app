@@ -47,6 +47,17 @@ describe('classifyMessage', () => {
     expect(classifyMessage('Am I overtraining?')).toBe('recovery');
   });
 
+  it('classifies completed workout questions', () => {
+    expect(classifyMessage('What workouts did I finish yesterday?')).toBe('completed_workout');
+    expect(classifyMessage('Do you know the workouts that I finished yesterday?')).toBe(
+      'completed_workout'
+    );
+    expect(classifyMessage('Show me my recent workouts')).toBe('completed_workout');
+    expect(classifyMessage('What did I do last workout?')).toBe('completed_workout');
+    expect(classifyMessage('Show my workout history')).toBe('completed_workout');
+    expect(classifyMessage('How did I do yesterday?')).toBe('completed_workout');
+  });
+
   it('classifies training plan questions', () => {
     expect(classifyMessage('What phase am I in?')).toBe('training_plan');
     expect(classifyMessage('Can I increase my weekly volume?')).toBe('training_plan');
@@ -268,6 +279,7 @@ describe('generateFallbackResponse', () => {
 
   it('returns a non-empty string for each category', () => {
     const categories = [
+      'completed_workout',
       'workout_inquiry',
       'schedule_inquiry',
       'readiness_inquiry',
@@ -300,6 +312,34 @@ describe('generateFallbackResponse', () => {
     const response = generateFallbackResponse('general', 'hello', context);
     expect(response).toContain('Tempo Run');
     expect(response).toContain('72/100');
+  });
+
+  it('lists completed workouts when asked about history', () => {
+    const ctxWithHistory = {
+      ...context,
+      yesterdayScore: {
+        completionScore: 82,
+        feedback: { label: 'Solid session', message: 'Good effort!' },
+        completedWorkout: { discipline: 'run', duration: 48, title: 'Easy Run' },
+      },
+      workoutHistory: [
+        { discipline: 'swim', durationMinutes: 45, startDate: '2026-03-09T06:00:00Z' },
+        { discipline: 'run', durationMinutes: 48, startDate: '2026-03-10T07:00:00Z' },
+      ],
+    };
+    const response = generateFallbackResponse(
+      'completed_workout',
+      'what did I do yesterday',
+      ctxWithHistory
+    );
+    expect(response).toContain('run');
+    expect(response).toContain('82%');
+  });
+
+  it('handles no completed workout data gracefully', () => {
+    const emptyCtx = { ...context, yesterdayScore: null, workoutHistory: [] };
+    const response = generateFallbackResponse('completed_workout', 'what did I do', emptyCtx);
+    expect(response).toContain("don't have");
   });
 
   it('gives race-week specific nutrition advice', () => {

@@ -35,6 +35,7 @@ export function ChatProvider({ children }) {
     workoutHistory,
     swapTodayWorkout,
     completedWorkouts,
+    saveProfile,
   } = useApp();
 
   useEffect(() => {
@@ -191,6 +192,7 @@ export function ChatProvider({ children }) {
       workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
       conversationSummary: buildConversationSummary(messages),
       onWorkoutSwap: swapTodayWorkout,
+      onProfileUpdate: saveProfile,
     };
   }
 
@@ -226,6 +228,7 @@ export function ChatProvider({ children }) {
           workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
           conversationSummary: buildConversationSummary(updatedMessages),
           onWorkoutSwap: swapTodayWorkout,
+          onProfileUpdate: saveProfile,
         };
         const responseText = await getCoachResponse(text.trim(), context, updatedMessages);
 
@@ -268,6 +271,7 @@ export function ChatProvider({ children }) {
       workoutHistory,
       completedWorkouts,
       swapTodayWorkout,
+      saveProfile,
       getTrainingPhase,
       getDaysToRace,
     ]

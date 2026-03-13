@@ -4,13 +4,18 @@ AI-powered Ironman triathlon training app for iPhone. Generates personalized dai
 
 ## Features
 
-- **Smart Daily Workouts** — AI generates periodized swim/bike/run sessions based on your readiness, training phase, and race countdown
-- **Apple Health Integration** — Reads resting HR, HRV, sleep, and VO2Max to calculate a daily readiness score (0-100)
-- **AI Coach Chat** — Ask your on-device coach about training, recovery, nutrition, and race strategy
-- **Recovery Dashboard** — 14-day sparkline trends for HRV, resting HR, and sleep
-- **Weekly Summary** — Training grid with discipline breakdown and AI weekly debrief
-- **Periodized Training** — Auto-calculated phases: Base → Build → Peak → Taper → Race Week
-- **SSO Authentication** — Google and Apple Sign-In
+- **Smart Daily Workouts** — AI whips up periodized swim/bike/run sessions tailored to your readiness, training phase, and race countdown. No two days are the same!
+- **Apple Health Sync** — Pulls resting HR, HRV, sleep, VO2Max, and completed workouts straight from your Apple Watch. Syncs on app launch, after plan changes, during coach chats, and on-demand with the SYNC button.
+- **AI Coach Chat** — Your pocket coach knows your data. Ask about yesterday's workouts, swap today's session, change your race date, or get nutrition tips. It actually listens!
+- **Adaptive Training Plan** — The plan evolves with you. Missed a swim week? It notices. Crushing your runs? It pushes harder. Feeling wrecked? It dials back. Every workout, health trend, and coach conversation shapes what comes next.
+- **Yesterday's Session** — See exactly what you logged in Apple Health yesterday, with completion scores and feedback. Multiple sessions? All listed.
+- **Recovery Dashboard** — 14-day sparkline trends for HRV, resting HR, and sleep. Know when to send it and when to chill.
+- **Readiness Score** — A 0-100 score from your biometrics drives everything. Below 55? Rest day. Above 75? Time to fly.
+- **Weekly Review** — Sunday auto-debrief analyzes your week's compliance, discipline balance, and health trends, then suggests tweaks for next week.
+- **Periodized Phases** — Auto-calculated: Base → Build → Peak → Taper → Race Week. The plan shifts as race day approaches.
+- **On-Device AI** — Qwen 3.5 2B runs locally via llama.rn. No internet needed, no data leaves your phone.
+- **Rule-Based Fallback** — Every AI feature has a deterministic backup. The app works perfectly offline, even without the model loaded.
+- **SSO Authentication** — Google and Apple Sign-In. One tap and you're in.
 
 ## Tech Stack
 
@@ -18,7 +23,7 @@ AI-powered Ironman triathlon training app for iPhone. Generates personalized dai
 |-------|-----------|
 | Framework | React Native 0.73 + Expo 50 |
 | Navigation | React Navigation (stack + bottom tabs) |
-| AI (on-device) | Qwen 3.5 0.6B via llama.cpp native bridge |
+| AI (on-device) | Qwen 3.5 2B via llama.rn (llama.cpp bindings) |
 | AI (cloud) | Claude API (optional) |
 | Health | Apple HealthKit via react-native-health |
 | Auth | expo-auth-session (Google), expo-apple-authentication |

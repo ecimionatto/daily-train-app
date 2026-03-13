@@ -20,6 +20,7 @@ export default function DashboardScreen({ navigation }) {
     overallReadiness,
     swapTodayWorkout,
     completedWorkouts,
+    loadCompletedWorkouts,
   } = useApp();
 
   const { messages } = useChat();
@@ -68,7 +69,13 @@ export default function DashboardScreen({ navigation }) {
 
   async function onRefresh() {
     setRefreshing(true);
-    await loadHealthData();
+    await Promise.all([loadHealthData(), loadCompletedWorkouts()]);
+    setRefreshing(false);
+  }
+
+  async function syncWorkouts() {
+    setRefreshing(true);
+    await loadCompletedWorkouts();
     setRefreshing(false);
   }
 
@@ -176,11 +183,11 @@ export default function DashboardScreen({ navigation }) {
             </Text>
             <View style={styles.yesterdayInfo}>
               <Text style={styles.yesterdayLabel}>{yesterdayScore.feedback?.label}</Text>
-              <Text style={styles.yesterdayDetail}>
-                {yesterdayScore.completedWorkout?.title} —{' '}
-                {yesterdayScore.completedWorkout?.discipline} ·{' '}
-                {yesterdayScore.completedWorkout?.duration}min
-              </Text>
+              {(yesterdayScore.allWorkouts || [yesterdayScore.completedWorkout]).map((w, i) => (
+                <Text key={i} style={styles.yesterdayDetail}>
+                  {w?.title} — {w?.discipline} · {w?.duration}min
+                </Text>
+              ))}
             </View>
           </View>
         </View>
@@ -251,10 +258,17 @@ export default function DashboardScreen({ navigation }) {
       )}
 
       {/* Recent Apple Health Activity */}
-      {completedWorkouts && completedWorkouts.length > 0 && (
-        <View style={styles.recentActivityCard}>
-          <Text style={styles.sectionTitle}>RECENT ACTIVITY</Text>
-          {completedWorkouts
+      <View style={styles.recentActivityCard}>
+        <View style={styles.recentActivityHeader}>
+          <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>RECENT ACTIVITY</Text>
+          <TouchableOpacity onPress={syncWorkouts} disabled={refreshing}>
+            <Text style={[styles.syncButton, refreshing && styles.syncButtonDisabled]}>
+              {refreshing ? 'SYNCING...' : 'SYNC'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {completedWorkouts && completedWorkouts.length > 0 ? (
+          completedWorkouts
             .slice(-3)
             .reverse()
             .map((w, i) => (
@@ -280,9 +294,13 @@ export default function DashboardScreen({ navigation }) {
                   </Text>
                 </View>
               </View>
-            ))}
-        </View>
-      )}
+            ))
+        ) : (
+          <Text style={styles.noActivityText}>
+            Pull down or tap SYNC to load workouts from Apple Health
+          </Text>
+        )}
+      </View>
 
       <View style={{ height: 100 }} />
     </ScrollView>
@@ -702,6 +720,27 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
+  },
+  recentActivityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  syncButton: {
+    color: '#e8ff47',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  syncButtonDisabled: {
+    color: '#666',
+  },
+  noActivityText: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 12,
   },
   recentActivityRow: {
     flexDirection: 'row',

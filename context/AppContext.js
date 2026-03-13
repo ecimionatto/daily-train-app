@@ -96,7 +96,8 @@ export function AppProvider({ children }) {
       const ok = await initLocalModel();
       setModelStatus(ok ? 'ready' : 'error');
     } catch (e) {
-      console.warn('Failed to load AI model:', e);
+      // eslint-disable-next-line no-console
+      console.log('Failed to load AI model:', e.message || e);
       setModelStatus('error');
     }
   }
@@ -179,18 +180,23 @@ export function AppProvider({ children }) {
     // Try Apple Health completed workouts first
     const yesterdayHealthWorkouts = findYesterdayCompletedWorkouts(healthWorkouts);
     if (yesterdayHealthWorkouts.length > 0) {
-      const latest = yesterdayHealthWorkouts[yesterdayHealthWorkouts.length - 1];
-      const durationScore = Math.min(Math.round((latest.durationMinutes / 60) * 100), 100);
+      const totalMinutes = yesterdayHealthWorkouts.reduce(
+        (sum, w) => sum + (w.durationMinutes || 0),
+        0
+      );
+      const durationScore = Math.min(Math.round((totalMinutes / 60) * 100), 100);
       const feedback = getCompletionFeedback(durationScore);
+      const allWorkouts = yesterdayHealthWorkouts.map((w) => ({
+        title: `${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)} Session`,
+        discipline: w.discipline,
+        duration: w.durationMinutes,
+        startDate: w.startDate,
+      }));
       setYesterdayScore({
         completionScore: durationScore,
         feedback,
-        completedWorkout: {
-          title: `${latest.discipline?.charAt(0).toUpperCase()}${latest.discipline?.slice(1)} Session`,
-          discipline: latest.discipline,
-          duration: latest.durationMinutes,
-          startDate: latest.startDate,
-        },
+        completedWorkout: allWorkouts[allWorkouts.length - 1],
+        allWorkouts,
       });
       return;
     }
@@ -208,6 +214,7 @@ export function AppProvider({ children }) {
       completionScore,
       feedback,
       completedWorkout: latest,
+      allWorkouts: [latest],
     });
   }
 
