@@ -35,8 +35,8 @@ AI-powered Ironman triathlon training app for iPhone. Generates personalized dai
 ### Prerequisites
 
 - [mise](https://mise.jdx.dev/) (runtime version manager)
-- Xcode (for iOS simulator or device builds)
-- [Expo Go](https://expo.dev/go) on your iPhone (for quick testing)
+- Xcode 15+ (native builds for simulator and device)
+- Physical iPhone for Apple Health integration (HealthKit is device-only)
 
 ### Setup
 
@@ -50,25 +50,40 @@ mise trust && mise install
 
 # Install dependencies
 npm install
-
-# Start the Expo dev server
-npm start
 ```
 
-Scan the QR code with Expo Go on your iPhone, or press `i` to open in iOS Simulator.
-
-### Apple Health (Real Device Only)
-
-HealthKit requires a physical iPhone + Apple Developer account ($99/year):
+### Running on Simulator
 
 ```bash
-npx expo prebuild --platform ios
-cd ios && pod install && cd ..
-open ios/DailyTrain.xcworkspace
-# Sign with your team → Build to device
+# Generate native iOS project
+LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
+
+# Build for simulator (no signing needed)
+xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO build
+
+# Start Metro bundler
+npm start
+
+# Launch in simulator
+xcrun simctl launch booted com.dailytrain.app
 ```
 
-On simulator, the app automatically falls back to realistic mock health data.
+On simulator: Apple Sign In is replaced by a "Dev Sign In" button, HealthKit returns mock data, and the AI model falls back to rule-based responses.
+
+### Running on Physical iPhone
+
+HealthKit and Apple Sign In require a real device:
+
+```bash
+# Build and install (requires connected iPhone + Xcode signing)
+xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+  -destination 'id=YOUR_DEVICE_UDID' -configuration Debug \
+  -allowProvisioningUpdates build
+```
+
+With a free Apple account, remove "Sign In with Apple" and "Push Notifications" capabilities in Xcode before building. The app will expire after 7 days.
 
 ### Environment Variables
 
@@ -111,7 +126,7 @@ GOOGLE_IOS_CLIENT_ID=your_ios_client_id
 
 ## Architecture Decisions
 
-**On-device AI first** — Workouts and coaching run locally via Qwen 3.5 (0.6B quantized). No internet required. Claude API is an optional upgrade path.
+**On-device AI first** — Workouts and coaching run locally via Qwen 3.5 2B (Q4_K_M quantized, 1.3GB) through llama.rn. No internet required. Claude API is an optional upgrade path.
 
 **Rule-based fallback** — Every AI feature has a deterministic fallback that works without any model loaded. The app is fully functional offline.
 

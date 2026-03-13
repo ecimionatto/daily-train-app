@@ -61,6 +61,68 @@ The training plan must be continuously evaluated and adapted based on:
 
 The workout generation (`generateWorkoutLocally`) and coach responses (`getCoachResponse`) must always consider the athlete's recent history, not just the current day's data.
 
+## Development Methodology
+
+### Spec-Driven Development (The Contract)
+
+CLAUDE.md is the source of truth. Define the contract (inputs, outputs, error states, constraints) before generating code. This prevents context drift and keeps AI implementations aligned with architecture.
+
+- **Artifacts**: CLAUDE.md defines project rules, conventions, and boundaries
+- **The Contract**: Every feature must have its behavior defined here before implementation
+- **Validation**: If generated code violates these rules, the spec flags it — fix the code, not the spec
+
+### Vibe Coding (The Implementation)
+
+Once the contract is locked, use conversational AI to flesh out the implementation within the spec's boundaries.
+
+- **Workflow**: Prompt, generate, run tests, iterate
+- **Ideal for**: UI components, data transformation, service logic, boilerplate
+- **Guardrails**: Tests + lint + pre-commit hooks enforce the contract automatically
+
+### When to Use Which
+
+| Concern | Spec-Driven | Vibe Coding |
+|---------|-------------|-------------|
+| Goal | Maintainability & alignment | Speed & exploration |
+| Human role | Architect / spec writer | Orchestrator / prompt engineer |
+| Source of truth | CLAUDE.md + tests | Chat history + generated code |
+| When | System design, APIs, new features | UI tweaks, logic blocks, prototypes |
+
+## iOS Build & Deploy
+
+### Personal Team (Free Apple Account)
+
+The app uses a Personal Team for development. These capabilities are **not supported** on free accounts and must be removed before building:
+
+- Sign In with Apple (use Dev Sign In on device for testing)
+- Push Notifications
+- Extended Virtual Addressing
+
+### Build Commands
+
+```bash
+# Prebuild (regenerates ios/ from app.json)
+LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
+
+# Patch ExpoAppleAuthentication (required after every prebuild)
+# Add @unknown default to switch statements in:
+# node_modules/expo-apple-authentication/ios/AppleAuthenticationUtils.swift
+
+# Build for device (requires connected iPhone)
+xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+  -destination 'id=DEVICE_UDID' -configuration Debug \
+  -allowProvisioningUpdates build
+
+# Build for simulator
+xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+## Documentation
+
+All documentation (README.md, CLAUDE.md, skill files, inline comments) must be revised after implementation changes. When code behavior, APIs, or workflows change, update the corresponding docs in the same commit — never leave docs stale.
+
 ## Pre-commit
 
 Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js` files. Secret detection blocks hardcoded API keys/tokens.
