@@ -162,7 +162,18 @@
       "Bash(pod --version)",
       "Bash(xcrun xctrace list devices)",
       "Bash(security find-identity -v -p codesigning)",
-      "Bash(open /Users/edson.cimionatto/workspace-claude/daily-train-app/ios/DailyTrain.xcworkspace)"
+      "Bash(open /Users/edson.cimionatto/workspace-claude/daily-train-app/ios/DailyTrain.xcworkspace)",
+      "Bash(xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain -destination 'id=00008140-001A543814E2801C' -configuration Debug -allowProvisioningUpdates build)",
+      "Bash(open ios/DailyTrain.xcworkspace)",
+      "Bash(security find-certificate -a -p ~/Library/Keychains/login.keychain-db)",
+      "Bash(openssl x509 -noout -subject)",
+      "Bash(defaults read ~/Library/Preferences/com.apple.dt.Xcode)",
+      "Bash(xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain -destination 'id=00008140-001A543814E2801C' -configuration Debug DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build)",
+      "Bash(ios-deploy --bundle /Users/edson.cimionatto/Library/Developer/Xcode/DerivedData/DailyTrain-hhsbwznkvwzwkihjfvdwbncllekt/Build/Products/Debug-iphoneos/DailyTrain.app --id 00008140-001A543814E2801C)",
+      "Bash(xcrun devicectl device install app --device 00008140-001A543814E2801C /Users/edson.cimionatto/Library/Developer/Xcode/DerivedData/DailyTrain-hhsbwznkvwzwkihjfvdwbncllekt/Build/Products/Debug-iphoneos/DailyTrain.app)",
+      "Bash(lsof -ti:8081)",
+      "Bash(xargs kill -9)",
+      "Bash(/bin/zsh -c 'eval \"\"$\\($HOME/.local/bin/mise activate zsh\\)\"\" && npx expo start --port 8081')"
     ]
   }
 }

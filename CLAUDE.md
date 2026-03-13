@@ -111,7 +111,7 @@ LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
 # Build for device (requires connected iPhone)
 xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
   -destination 'id=DEVICE_UDID' -configuration Debug \
-  -allowProvisioningUpdates build
+  DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build
 
 # Build for simulator
 xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \

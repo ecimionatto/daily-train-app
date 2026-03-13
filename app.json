@@ -30,7 +30,8 @@
           }
         }
       ],
-      "./plugins/withLlamaRN.js"
+      "./plugins/withLlamaRN.js",
+      "./plugins/withPersonalTeam.js"
     ]
   }
 }

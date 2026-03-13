@@ -9,7 +9,6 @@ const path = require('path');
 function withLlamaRN(config) {
   // Add extended memory entitlements for loading large models
   config = withEntitlementsPlist(config, (mod) => {
-    mod.modResults['com.apple.developer.kernel.extended-virtual-addressing'] = true;
     mod.modResults['com.apple.developer.kernel.increased-memory-limit'] = true;
     return mod;
   });
