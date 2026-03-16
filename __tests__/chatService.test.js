@@ -6,6 +6,7 @@ import {
   getOffTopicResponse,
   buildConversationSummary,
   generateFallbackGreeting,
+  extractAthleteInsights,
 } from '../services/chatService';
 
 describe('classifyMessage', () => {
@@ -56,6 +57,16 @@ describe('classifyMessage', () => {
     expect(classifyMessage('What did I do last workout?')).toBe('completed_workout');
     expect(classifyMessage('Show my workout history')).toBe('completed_workout');
     expect(classifyMessage('How did I do yesterday?')).toBe('completed_workout');
+  });
+
+  it('classifies schedule preference requests', () => {
+    expect(classifyMessage('I want to do my long sessions on weekends')).toBe(
+      'schedule_preference'
+    );
+    expect(classifyMessage('Move my rest day to Friday')).toBe('schedule_preference');
+    expect(classifyMessage('I prefer Saturday for long rides')).toBe('schedule_preference');
+    expect(classifyMessage('Can I do long runs on Sunday?')).toBe('schedule_preference');
+    expect(classifyMessage('No training on Monday please')).toBe('schedule_preference');
   });
 
   it('classifies training plan questions', () => {
@@ -289,6 +300,7 @@ describe('generateFallbackResponse', () => {
       'recovery',
       'nutrition',
       'race_strategy',
+      'schedule_preference',
       'general',
     ];
     categories.forEach((cat) => {
@@ -390,11 +402,14 @@ describe('buildCoachSystemPrompt', () => {
   it('includes workout history when provided', () => {
     const context = {
       athleteProfile: {},
-      workoutHistory: [{ discipline: 'run', title: 'Easy Run', completedSets: 5, totalSets: 6 }],
+      workoutHistory: [
+        { discipline: 'run', durationMinutes: 45, startDate: '2026-03-14T08:00:00Z' },
+      ],
     };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('RECENT WORKOUT HISTORY');
-    expect(prompt).toContain('Easy Run');
+    expect(prompt).toContain('run');
+    expect(prompt).toContain('45min');
   });
 
   it('includes yesterday score when provided', () => {
@@ -415,5 +430,252 @@ describe('buildCoachSystemPrompt', () => {
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('OVERALL READINESS BREAKDOWN');
     expect(prompt).toContain('75');
+  });
+
+  it('includes athlete insights when present in profile', () => {
+    const context = {
+      athleteProfile: {
+        athleteInsights: {
+          recentMood: 'fatigued',
+          painPoints: ['knee'],
+          preferredIntensity: 'easier',
+          lastFatigueReport: new Date().toISOString(),
+          conversationThemes: ['recovery', 'injury'],
+        },
+      },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('ATHLETE INSIGHTS');
+    expect(prompt).toContain('fatigued');
+    expect(prompt).toContain('knee');
+    expect(prompt).toContain('easier');
+  });
+
+  it('instructs coach not to fabricate statistics', () => {
+    const prompt = buildCoachSystemPrompt({});
+    expect(prompt).toContain('never fabricate');
+  });
+});
+
+describe('extractAthleteInsights', () => {
+  const now = new Date();
+  const makeMsg = (content, daysAgo = 0) => ({
+    role: 'athlete',
+    content,
+    timestamp: new Date(now.getTime() - daysAgo * 86400000).toISOString(),
+  });
+
+  it('returns null for empty messages', () => {
+    expect(extractAthleteInsights([])).toBeNull();
+    expect(extractAthleteInsights(null)).toBeNull();
+  });
+
+  it('detects fatigue mood', () => {
+    const messages = [makeMsg('I am exhausted after this week')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.recentMood).toBe('fatigued');
+    expect(insights.lastFatigueReport).toBeDefined();
+  });
+
+  it('detects pain points with body parts', () => {
+    const messages = [makeMsg('My knee hurts after running')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.recentMood).toBe('injured');
+    expect(insights.painPoints).toContain('knee');
+  });
+
+  it('detects multiple pain points', () => {
+    const messages = [makeMsg('My knee is sore'), makeMsg('My shoulder aches too')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.painPoints).toContain('knee');
+    expect(insights.painPoints).toContain('shoulder');
+  });
+
+  it('detects preferred intensity easier', () => {
+    const messages = [makeMsg('The workouts are too hard for me')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.preferredIntensity).toBe('easier');
+  });
+
+  it('detects preferred intensity harder', () => {
+    const messages = [makeMsg('These workouts are too easy, push me more')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.preferredIntensity).toBe('harder');
+  });
+
+  it('detects motivated mood', () => {
+    const messages = [makeMsg('Feeling great today, ready to go!')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.recentMood).toBe('motivated');
+  });
+
+  it('ignores messages older than 7 days', () => {
+    const messages = [makeMsg('I am exhausted', 10)];
+    const insights = extractAthleteInsights(messages);
+    expect(insights).toBeNull();
+  });
+
+  it('extracts conversation themes', () => {
+    const messages = [
+      makeMsg('What should I eat before my long ride?'),
+      makeMsg('How is my readiness looking?'),
+    ];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.conversationThemes.length).toBeGreaterThan(0);
+  });
+
+  it('sets loadAdjustment to reduce when athlete reports fatigue', () => {
+    const messages = [makeMsg("I'm really tired this week, take it easy")];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.loadAdjustment).toBe('reduce');
+    expect(insights.loadAdjustmentExpiry).toBeDefined();
+    expect(new Date(insights.loadAdjustmentExpiry) > new Date()).toBe(true);
+  });
+
+  it('sets loadAdjustment to reduce for LOAD_REDUCE_KEYWORDS', () => {
+    const messages = [makeMsg('Give me a lighter week please')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.loadAdjustment).toBe('reduce');
+  });
+
+  it('sets requestedRestDay to tomorrow when athlete asks for day off', () => {
+    const messages = [makeMsg('Can I take tomorrow off?')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.requestedRestDay).toBeDefined();
+    const restDate = new Date(insights.requestedRestDay);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(restDate.toDateString()).toBe(tomorrow.toDateString());
+  });
+
+  it('sets loadAdjustment to increase for push-harder requests', () => {
+    const messages = [makeMsg('Push me harder this week')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.loadAdjustment).toBe('increase');
+  });
+
+  it('sets requestedDisciplineFocus when athlete wants more of a discipline', () => {
+    const messages = [makeMsg('I want to focus on swim more')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.requestedDisciplineFocus).toBe('swim');
+  });
+
+  it('carries forward active loadAdjustment from existingInsights when no new signal', () => {
+    const futureExpiry = new Date();
+    futureExpiry.setDate(futureExpiry.getDate() + 2);
+    const existing = {
+      loadAdjustment: 'reduce',
+      loadAdjustmentExpiry: futureExpiry.toISOString(),
+      loadAdjustmentDays: 2,
+    };
+    const messages = [makeMsg('What is my workout today?')];
+    const insights = extractAthleteInsights(messages, existing);
+    expect(insights.loadAdjustment).toBe('reduce');
+    expect(insights.loadAdjustmentExpiry).toBe(futureExpiry.toISOString());
+  });
+
+  it('does not carry forward expired loadAdjustment from existingInsights', () => {
+    const pastExpiry = new Date();
+    pastExpiry.setDate(pastExpiry.getDate() - 1);
+    const existing = {
+      loadAdjustment: 'reduce',
+      loadAdjustmentExpiry: pastExpiry.toISOString(),
+      loadAdjustmentDays: 3,
+    };
+    const messages = [makeMsg('What is my workout today?')];
+    const insights = extractAthleteInsights(messages, existing);
+    expect(insights.loadAdjustment).toBeNull();
+  });
+
+  it('returns null for loadAdjustment when no relevant keywords', () => {
+    const messages = [makeMsg('What should I eat before my run?')];
+    const insights = extractAthleteInsights(messages);
+    expect(insights.loadAdjustment).toBeNull();
+    expect(insights.requestedRestDay).toBeNull();
+  });
+});
+
+describe('classifyMessage - load_adjustment', () => {
+  it('classifies load reduction requests', () => {
+    expect(classifyMessage("I'm exhausted, take it easy this week")).toBe('load_adjustment');
+    expect(classifyMessage('Give me a lighter week')).toBe('load_adjustment');
+    expect(classifyMessage('Can we ease up on training?')).toBe('load_adjustment');
+  });
+
+  it('classifies rest day requests as load_adjustment', () => {
+    expect(classifyMessage('Take tomorrow off')).toBe('load_adjustment');
+    expect(classifyMessage('I need a rest day tomorrow')).toBe('load_adjustment');
+    expect(classifyMessage('Can I have tomorrow off?')).toBe('load_adjustment');
+  });
+
+  it('classifies push harder requests as load_adjustment', () => {
+    expect(classifyMessage('Push me harder this week')).toBe('load_adjustment');
+  });
+
+  it('classifies discipline focus requests as load_adjustment', () => {
+    expect(classifyMessage('I want to focus on swim more')).toBe('load_adjustment');
+    expect(classifyMessage('More running this week')).toBe('load_adjustment');
+  });
+});
+
+describe('buildCoachSystemPrompt - coach name fix', () => {
+  it('uses coach name Alex, not Coach', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('named Alex');
+    expect(prompt).not.toMatch(/named Coach\b/);
+  });
+
+  it('addresses athlete by name when name is in profile', () => {
+    const context = { athleteProfile: { name: 'Sarah', raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('Sarah');
+    expect(prompt).toContain("Never call the athlete 'Coach'");
+  });
+
+  it('falls back to coaching the athlete when no name in profile', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('the athlete');
+  });
+
+  it('includes active load adjustment in ATHLETE INSIGHTS section', () => {
+    const futureExpiry = new Date();
+    futureExpiry.setDate(futureExpiry.getDate() + 2);
+    const context = {
+      athleteProfile: {
+        name: 'Tom',
+        raceType: 'triathlon',
+        athleteInsights: {
+          recentMood: 'fatigued',
+          loadAdjustment: 'reduce',
+          loadAdjustmentExpiry: futureExpiry.toISOString(),
+          loadAdjustmentDays: 2,
+          painPoints: [],
+          conversationThemes: [],
+        },
+      },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('load adjustment');
+    expect(prompt).toContain('reduce');
+  });
+
+  it('includes COACHING KNOWLEDGE section when healthData is present', () => {
+    const context = {
+      athleteProfile: { raceType: 'triathlon' },
+      healthData: { hrv: 60, restingHR: 50, sleepHours: 7.5 },
+    };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('COACHING KNOWLEDGE');
+    expect(prompt).toContain('Zone 2');
+    expect(prompt).toContain('HRV');
+    expect(prompt).toContain('80/20');
+  });
+
+  it('omits COACHING KNOWLEDGE section when healthData is absent', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).not.toContain('COACHING KNOWLEDGE');
   });
 });

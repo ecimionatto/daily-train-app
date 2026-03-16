@@ -8,6 +8,7 @@ const TAB_CONFIG = {
   Recovery: { label: 'Recovery', icon: '♥' },
   Weekly: { label: 'Week', icon: '▦' },
   Coach: { label: 'Coach', icon: '●' },
+  Calendar: { label: 'Plan', icon: '▣' },
 };
 
 export default function TabBar({ state, descriptors, navigation }) {

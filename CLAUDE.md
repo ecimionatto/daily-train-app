@@ -123,6 +123,17 @@ xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
 
 All documentation (README.md, CLAUDE.md, skill files, inline comments) must be revised after implementation changes. When code behavior, APIs, or workflows change, update the corresponding docs in the same commit — never leave docs stale.
 
+## Skills (`.claude/commands/`)
+
+Skills must be kept up to date with the current build process and project state. The following skills exist and must reflect any changes to build commands, signing, plugins, or workflows:
+
+- **install-on-phone.md** — Build and install on a physical iPhone
+- **run-in-simulator.md** — Build and run in iOS Simulator
+- **publish-to-appstore.md** — Publish to the App Store
+- **troubleshoot.md** — Diagnose and fix common build, signing, and runtime issues
+
+When build steps, signing configuration, plugin behavior, or troubleshooting steps change, update the affected skills in the same commit.
+
 ## Pre-commit
 
 Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js` files. Secret detection blocks hardcoded API keys/tokens.

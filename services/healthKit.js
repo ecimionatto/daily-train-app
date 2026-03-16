@@ -2,13 +2,36 @@ import { Platform } from 'react-native';
 
 let AppleHealthKit = null;
 
+// HealthKit status tracking
+let healthKitStatus = { initialized: false, error: null, available: false };
+
 // Only import on iOS
 if (Platform.OS === 'ios') {
   try {
-    AppleHealthKit = require('react-native-health').default;
+    AppleHealthKit = require('react-native-health');
+    if (AppleHealthKit && typeof AppleHealthKit.initHealthKit === 'function') {
+      healthKitStatus.available = true;
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] Library loaded successfully');
+    } else {
+      healthKitStatus.error = 'react-native-health loaded but missing initHealthKit';
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] Library loaded but API missing:', Object.keys(AppleHealthKit || {}));
+      AppleHealthKit = null;
+    }
   } catch (e) {
-    console.warn('react-native-health not available');
+    healthKitStatus.error = 'react-native-health library not available';
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Library not available:', e.message);
   }
+}
+
+/**
+ * Get the current HealthKit initialization status.
+ * Returns { initialized, error, available } for UI display.
+ */
+export function getHealthKitStatus() {
+  return { ...healthKitStatus };
 }
 
 const HEALTH_PERMISSIONS = {
@@ -26,14 +49,23 @@ const HEALTH_PERMISSIONS = {
 };
 
 export async function initHealthKit() {
-  if (!AppleHealthKit) return false;
+  if (!AppleHealthKit) {
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Not available on this platform');
+    return false;
+  }
 
   return new Promise((resolve) => {
     AppleHealthKit.initHealthKit(HEALTH_PERMISSIONS, (err) => {
       if (err) {
-        console.warn('HealthKit init error:', err);
+        healthKitStatus = { ...healthKitStatus, initialized: false, error: String(err) };
+        // eslint-disable-next-line no-console
+        console.log('[HealthKit] Init failed:', err);
         resolve(false);
       } else {
+        healthKitStatus = { ...healthKitStatus, initialized: true, error: null };
+        // eslint-disable-next-line no-console
+        console.log('[HealthKit] Initialized successfully');
         resolve(true);
       }
     });
@@ -41,14 +73,19 @@ export async function initHealthKit() {
 }
 
 export async function fetchHealthData() {
-  // Fall back to mock data when HealthKit isn't available (simulator, Android)
   if (!AppleHealthKit) {
-    return getMockHealthData();
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Not available — no health data');
+    return null;
   }
 
   try {
     const initialized = await initHealthKit();
-    if (!initialized) return getMockHealthData();
+    if (!initialized) {
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] Init failed — no health data');
+      return null;
+    }
 
     const [restingHR, hrv, sleep, vo2Max] = await Promise.all([
       getRestingHeartRate(),
@@ -57,19 +94,30 @@ export async function fetchHealthData() {
       getVO2Max(),
     ]);
 
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Health data fetched:', { restingHR, hrv, sleepHours: sleep, vo2Max });
     return { restingHR, hrv, sleepHours: sleep, vo2Max };
   } catch (e) {
-    console.warn('Failed to fetch health data:', e);
-    return getMockHealthData();
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Failed to fetch health data:', e.message || e);
+    return null;
   }
 }
 
 export async function fetchHealthHistory(days = 14) {
-  if (!AppleHealthKit) return getMockHistory(days);
+  if (!AppleHealthKit) {
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Not available — no health history');
+    return [];
+  }
 
   try {
     const initialized = await initHealthKit();
-    if (!initialized) return getMockHistory(days);
+    if (!initialized) {
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] Init failed — no health history');
+      return [];
+    }
 
     const history = [];
     for (let i = days - 1; i >= 0; i--) {
@@ -91,10 +139,13 @@ export async function fetchHealthHistory(days = 14) {
         sleepHours: sleepVal,
       });
     }
+    // eslint-disable-next-line no-console
+    console.log(`[HealthKit] Fetched ${history.length} days of health history`);
     return history;
   } catch (e) {
-    console.warn('Failed to fetch health history:', e);
-    return getMockHistory(days);
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Failed to fetch health history:', e.message || e);
+    return [];
   }
 }
 
@@ -254,8 +305,8 @@ const HEALTHKIT_WORKOUT_TYPE_MAP = {
   46: 'swim', // HKWorkoutActivityTypeSwimming
   13: 'bike', // HKWorkoutActivityTypeCycling
   37: 'run', // HKWorkoutActivityTypeRunning
-  52: 'run', // HKWorkoutActivityTypeWalking
-  35: 'run', // HKWorkoutActivityTypeHiking
+  52: 'walk', // HKWorkoutActivityTypeWalking
+  35: 'hike', // HKWorkoutActivityTypeHiking
   50: 'strength', // HKWorkoutActivityTypeFunctionalStrengthTraining
   20: 'strength', // HKWorkoutActivityTypeTraditionalStrengthTraining
 };
@@ -268,14 +319,24 @@ export function mapWorkoutType(hkActivityType) {
 }
 
 function mapWorkoutSample(sample) {
+  // HealthKit native response uses 'start'/'end', not 'startDate'/'endDate'
+  // Distance is in miles from the native module
+  const startDate = sample.start || sample.startDate;
+  const endDate = sample.end || sample.endDate;
+  const startMs = new Date(startDate).getTime();
+  const endMs = new Date(endDate).getTime();
+  const durationMinutes = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
+  const distanceMeters = sample.distance ? Math.round(sample.distance * 1609.34) : null;
+
   return {
-    id: sample.id || `hk_${sample.startDate}`,
+    id: sample.id || `hk_${startDate}`,
     discipline: mapWorkoutType(sample.activityId),
-    startDate: sample.startDate,
-    endDate: sample.endDate,
-    durationMinutes: Math.round((new Date(sample.endDate) - new Date(sample.startDate)) / 60000),
+    activityName: sample.activityName || null,
+    startDate,
+    endDate,
+    durationMinutes,
     calories: sample.calories ? Math.round(sample.calories) : null,
-    distanceMeters: sample.distance ? Math.round(sample.distance * 1000) : null,
+    distanceMeters,
     source: sample.sourceName || 'Apple Health',
   };
 }
@@ -292,84 +353,137 @@ function getWorkoutSamples(startDate, endDate) {
   });
 }
 
+// --- Heart Rate & Workout Enrichment ---
+
+function getHeartRateSamples(startDate, endDate) {
+  return new Promise((resolve) => {
+    if (!AppleHealthKit || typeof AppleHealthKit.getHeartRateSamples !== 'function') {
+      resolve([]);
+      return;
+    }
+    AppleHealthKit.getHeartRateSamples({ startDate, endDate, ascending: true }, (err, results) => {
+      if (err || !results) {
+        resolve([]);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+}
+
+/**
+ * Fetch heart rate stats for a specific workout time window.
+ */
+export async function fetchHeartRateForWorkout(startDate, endDate) {
+  const samples = await getHeartRateSamples(startDate, endDate);
+  if (!samples || samples.length === 0) return { avgHeartRate: null, maxHeartRate: null };
+
+  const values = samples.map((s) => s.value).filter((v) => v > 0);
+  if (values.length === 0) return { avgHeartRate: null, maxHeartRate: null };
+
+  const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+  const max = Math.round(Math.max(...values));
+  return { avgHeartRate: avg, maxHeartRate: max };
+}
+
+/**
+ * Calculate pace in min/km from distance (meters) and duration (minutes).
+ * Only meaningful for run/walk/hike disciplines.
+ */
+export function calculatePace(distanceMeters, durationMinutes) {
+  if (!distanceMeters || !durationMinutes || distanceMeters <= 0) return null;
+  const distanceKm = distanceMeters / 1000;
+  return Math.round((durationMinutes / distanceKm) * 100) / 100;
+}
+
+/**
+ * Calculate effort score (1-10) based on heart rate reserve.
+ * Uses Karvonen formula: %HRR = (avgHR - restingHR) / (maxHR - restingHR)
+ */
+export function calculateEffortScore(avgHeartRate, restingHR, estimatedMaxHR) {
+  if (!avgHeartRate || !restingHR || !estimatedMaxHR) return null;
+  if (estimatedMaxHR <= restingHR) return null;
+
+  const hrReservePercent = ((avgHeartRate - restingHR) / (estimatedMaxHR - restingHR)) * 100;
+  if (hrReservePercent < 30) return 1;
+  if (hrReservePercent < 40) return 2;
+  if (hrReservePercent < 50) return 3;
+  if (hrReservePercent < 60) return 4;
+  if (hrReservePercent < 65) return 5;
+  if (hrReservePercent < 70) return 6;
+  if (hrReservePercent < 75) return 7;
+  if (hrReservePercent < 80) return 8;
+  if (hrReservePercent < 90) return 9;
+  return 10;
+}
+
+/**
+ * Enrich a workout with heart rate, pace, and effort data.
+ */
+async function enrichWorkoutWithDetails(workout, restingHR, age) {
+  const { avgHeartRate, maxHeartRate } = await fetchHeartRateForWorkout(
+    workout.startDate,
+    workout.endDate
+  );
+
+  const paceableDisciplines = ['run', 'walk', 'hike'];
+  const avgPace = paceableDisciplines.includes(workout.discipline)
+    ? calculatePace(workout.distanceMeters, workout.durationMinutes)
+    : null;
+
+  const estimatedMaxHR = age ? 220 - age : 190;
+  const effortScore = calculateEffortScore(avgHeartRate, restingHR || 60, estimatedMaxHR);
+
+  return { ...workout, avgHeartRate, maxHeartRate, avgPace, effortScore };
+}
+
 /**
  * Fetch completed workouts from Apple Health for the last N days.
- * Falls back to mock data on simulator/Android.
+ * Enriches recent workouts (last 7 days) with heart rate and effort data.
  */
-export async function fetchCompletedWorkouts(daysBack = 7) {
+export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) {
   if (!AppleHealthKit) {
-    return getMockCompletedWorkouts(daysBack);
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Skipping workout fetch — not available');
+    return [];
   }
 
   try {
     const initialized = await initHealthKit();
-    if (!initialized) return getMockCompletedWorkouts(daysBack);
+    if (!initialized) {
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] Skipping workout fetch — not initialized');
+      return [];
+    }
 
     const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
     const endDate = new Date().toISOString();
-    return getWorkoutSamples(startDate, endDate);
+    const workouts = await getWorkoutSamples(startDate, endDate);
+    // eslint-disable-next-line no-console
+    console.log(`[HealthKit] Fetched ${workouts.length} workouts (last ${daysBack} days)`);
+
+    // Enrich recent workouts (last 7 days) with HR data
+    const { restingHR, age } = enrichOptions;
+    const enrichCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const enriched = await Promise.all(
+      workouts.map(async (w) => {
+        const workoutTime = new Date(w.startDate).getTime();
+        if (workoutTime >= enrichCutoff && w.startDate && w.endDate) {
+          try {
+            return await enrichWorkoutWithDetails(w, restingHR, age);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.log('[HealthKit] Failed to enrich workout:', err.message || err);
+            return w;
+          }
+        }
+        return w;
+      })
+    );
+    return enriched;
   } catch (e) {
-    console.warn('Failed to fetch completed workouts:', e);
-    return getMockCompletedWorkouts(daysBack);
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] Failed to fetch workouts:', e.message || e);
+    return [];
   }
-}
-
-// --- Mock Data (for simulator / Android fallback) ---
-
-function getMockHealthData() {
-  return {
-    restingHR: 52 + Math.floor(Math.random() * 8),
-    hrv: 45 + Math.floor(Math.random() * 30),
-    sleepHours: 6.5 + Math.random() * 2,
-    vo2Max: 48 + Math.floor(Math.random() * 8),
-  };
-}
-
-function getMockHistory(days) {
-  const history = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    history.push({
-      date: date.toISOString(),
-      restingHR: 50 + Math.floor(Math.random() * 10),
-      hrv: 40 + Math.floor(Math.random() * 35),
-      sleepHours: 6 + Math.random() * 3,
-    });
-  }
-  return history;
-}
-
-function getMockCompletedWorkouts(daysBack) {
-  const disciplines = ['swim', 'bike', 'run', 'strength'];
-  const workouts = [];
-  const now = Date.now();
-
-  for (let i = daysBack - 1; i >= 0; i--) {
-    const dayStart = new Date(now - i * 86400000);
-    dayStart.setHours(6, 0, 0, 0);
-    const dayOfWeek = dayStart.getDay();
-
-    // Rest on Sundays, 1-2 workouts on other days
-    if (dayOfWeek === 0) continue;
-
-    const discipline = disciplines[(daysBack - i) % disciplines.length];
-    const duration = discipline === 'strength' ? 35 : 45 + Math.floor(Math.random() * 30);
-    const startDate = new Date(dayStart);
-    const endDate = new Date(startDate.getTime() + duration * 60000);
-
-    workouts.push({
-      id: `mock_${i}`,
-      discipline,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      durationMinutes: duration,
-      calories: Math.round(duration * 8 + Math.random() * 100),
-      distanceMeters:
-        discipline === 'strength' ? null : Math.round(duration * 150 + Math.random() * 2000),
-      source: 'Mock Apple Watch',
-    });
-  }
-
-  return workouts;
 }

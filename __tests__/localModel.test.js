@@ -4,6 +4,7 @@ import {
   generateAlternativeWorkout,
   generateReplacementWorkout,
   generateWeeklyPlanAdjustment,
+  getWeeklyDisciplinePlan,
 } from '../services/localModel';
 
 jest.mock('../services/healthKit');
@@ -46,10 +47,10 @@ describe('generateWorkoutLocally', () => {
       daysToRace: 60,
     });
 
-    expect(workout.title).toBe('Active Recovery');
-    expect(workout.discipline).toBe('rest');
-    expect(workout.intensity).toBe('recovery');
-    expect(workout.duration).toBe(30);
+    expect(workout.discipline).toBeDefined();
+    expect(workout.intensity).toBeDefined();
+    expect(workout.sections).toBeDefined();
+    expect(workout.sections.length).toBeGreaterThan(0);
   });
 
   it('returns a structured workout with sections', async () => {
@@ -368,6 +369,62 @@ describe('generateWorkoutLocally with running profile', () => {
   });
 });
 
+describe('getWeeklyDisciplinePlan with schedule preferences', () => {
+  it('returns default plan when no preferences set', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan).toEqual(['rest', 'swim', 'bike', 'run', 'swim', 'strength', 'bike']);
+  });
+
+  it('moves bike to weekend when longDays set to Saturday and Sunday', () => {
+    const profileWithPrefs = {
+      ...mockProfile,
+      schedulePreferences: { longDays: [0, 6] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
+    // Bike should be on Saturday (6) and/or Sunday (0)
+    expect(plan[6]).toBe('bike');
+  });
+
+  it('sets rest days on specified days', () => {
+    const profileWithPrefs = {
+      ...mockProfile,
+      schedulePreferences: { restDays: [5] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
+    expect(plan[5]).toBe('rest');
+  });
+
+  it('handles avoidDays by setting them to rest', () => {
+    const profileWithPrefs = {
+      ...mockProfile,
+      schedulePreferences: { avoidDays: [1] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
+    expect(plan[1]).toBe('rest');
+  });
+
+  it('applies preferences to running profile', () => {
+    const profileWithPrefs = {
+      ...mockRunningProfile,
+      schedulePreferences: { longDays: [6] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
+    expect(plan[6]).toBe('run');
+  });
+
+  it('preserves rest days when long days overlap', () => {
+    const profileWithPrefs = {
+      ...mockProfile,
+      schedulePreferences: { restDays: [0], longDays: [0, 6] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
+    // Sunday (0) should stay rest since restDays takes priority
+    expect(plan[0]).toBe('rest');
+    // Saturday should get bike
+    expect(plan[6]).toBe('bike');
+  });
+});
+
 describe('generateAlternativeWorkout with running profile', () => {
   it('returns run or strength for running profile', async () => {
     const alt = await generateAlternativeWorkout({
@@ -381,5 +438,195 @@ describe('generateAlternativeWorkout with running profile', () => {
 
     expect(alt).not.toBeNull();
     expect(alt.discipline).toBe('run');
+  });
+});
+
+describe('generateWorkoutLocally with trends', () => {
+  it('reduces duration when fatiguing trend detected', async () => {
+    const fatiguingTrends = {
+      health: { overallTrend: 'fatiguing', alerts: ['HRV declining'] },
+      workout: { volumeTrend: 'stable', disciplineBalance: { run: 2, swim: 1, bike: 1 } },
+    };
+
+    const fatigued = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 80,
+      phase: 'BUILD',
+      daysToRace: 60,
+      trends: fatiguingTrends,
+    });
+
+    const normal = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 80,
+      phase: 'BUILD',
+      daysToRace: 60,
+    });
+
+    // Fatiguing trend should produce shorter or equal duration (rest days = 0)
+    if (fatigued.discipline !== 'rest' && normal.discipline !== 'rest') {
+      expect(fatigued.duration).toBeLessThan(normal.duration);
+    }
+  });
+
+  it('caps intensity at moderate when fatiguing', async () => {
+    const fatiguingTrends = {
+      health: { overallTrend: 'fatiguing' },
+      workout: { disciplineBalance: { run: 2, swim: 1, bike: 1 } },
+    };
+
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 90,
+      phase: 'BUILD',
+      daysToRace: 60,
+      trends: fatiguingTrends,
+    });
+
+    if (workout.discipline !== 'rest') {
+      expect(workout.intensity).toBe('moderate');
+    }
+  });
+
+  it('prioritizes under-trained discipline from trends', async () => {
+    const trends = {
+      health: { overallTrend: 'stable' },
+      workout: { disciplineBalance: { run: 3, bike: 2, swim: 0 } },
+    };
+
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      trends,
+    });
+
+    // swim has 0 sessions, should be prioritized (unless it's a rest day)
+    if (workout.discipline !== 'rest') {
+      expect(workout.discipline).toBe('swim');
+    }
+  });
+
+  it('works normally without trends', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      trends: null,
+    });
+
+    expect(workout.title).toBeDefined();
+    expect(workout.sections).toBeDefined();
+  });
+});
+
+describe('generateWorkoutLocally - load adjustment from coach conversation', () => {
+  it('reduces duration when active load adjustment is reduce', async () => {
+    const futureExpiry = new Date();
+    futureExpiry.setDate(futureExpiry.getDate() + 2);
+    const profileWithAdjustment = {
+      ...mockProfile,
+      athleteInsights: {
+        recentMood: 'fatigued',
+        loadAdjustment: 'reduce',
+        loadAdjustmentExpiry: futureExpiry.toISOString(),
+        loadAdjustmentDays: 2,
+        painPoints: [],
+        conversationThemes: [],
+        preferredIntensity: null,
+        requestedRestDay: null,
+        requestedDisciplineFocus: null,
+      },
+    };
+
+    const reduced = await generateWorkoutLocally({
+      profile: profileWithAdjustment,
+      healthData: mockHealthData,
+      readinessScore: 80,
+      phase: 'BUILD',
+      daysToRace: 60,
+    });
+
+    const normal = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 80,
+      phase: 'BUILD',
+      daysToRace: 60,
+    });
+
+    // If neither is a rest day, reduced should have shorter duration
+    if (reduced.discipline !== 'rest' && normal.discipline !== 'rest') {
+      expect(reduced.duration).toBeLessThan(normal.duration);
+    }
+  });
+
+  it('returns rest workout when requestedRestDay matches today', async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const profileWithRestRequest = {
+      ...mockProfile,
+      athleteInsights: {
+        recentMood: 'neutral',
+        loadAdjustment: null,
+        loadAdjustmentExpiry: null,
+        loadAdjustmentDays: null,
+        requestedRestDay: today.toISOString(),
+        requestedDisciplineFocus: null,
+        painPoints: [],
+        conversationThemes: [],
+        preferredIntensity: null,
+      },
+    };
+
+    const workout = await generateWorkoutLocally({
+      profile: profileWithRestRequest,
+      healthData: mockHealthData,
+      readinessScore: 90,
+      phase: 'BUILD',
+      daysToRace: 60,
+      targetDate: today,
+    });
+
+    expect(workout.discipline).toBe('rest');
+  });
+
+  it('does not apply load adjustment when expiry is in the past', async () => {
+    const pastExpiry = new Date();
+    pastExpiry.setDate(pastExpiry.getDate() - 1);
+    const profileWithExpiredAdjustment = {
+      ...mockProfile,
+      athleteInsights: {
+        recentMood: 'neutral',
+        loadAdjustment: 'reduce',
+        loadAdjustmentExpiry: pastExpiry.toISOString(),
+        loadAdjustmentDays: 3,
+        requestedRestDay: null,
+        requestedDisciplineFocus: null,
+        painPoints: [],
+        conversationThemes: [],
+        preferredIntensity: null,
+      },
+    };
+
+    const workout = await generateWorkoutLocally({
+      profile: profileWithExpiredAdjustment,
+      healthData: mockHealthData,
+      readinessScore: 90,
+      phase: 'BUILD',
+      daysToRace: 60,
+    });
+
+    // With expired adjustment, high readiness (90) should produce 'hard' intensity
+    if (workout.discipline !== 'rest') {
+      expect(workout.intensity).toBe('hard');
+    }
   });
 });

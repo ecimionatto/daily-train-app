@@ -5,6 +5,7 @@ import {
   buildConversationSummary,
   generateProactiveGreeting,
   generateWeeklyReview,
+  extractAthleteInsights,
 } from '../services/chatService';
 import { useApp } from './AppContext';
 
@@ -36,12 +37,15 @@ export function ChatProvider({ children }) {
     swapTodayWorkout,
     completedWorkouts,
     saveProfile,
+    trends,
   } = useApp();
 
   useEffect(() => {
-    loadConversation();
-    checkGreetingStatus();
-    checkWeeklyReviewStatus();
+    migrateStaleGreetings().then(() => {
+      loadConversation();
+      checkGreetingStatus();
+      checkWeeklyReviewStatus();
+    });
   }, []);
 
   // Proactive greeting trigger
@@ -59,6 +63,37 @@ export function ChatProvider({ children }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasReviewedThisWeek, workoutHistory, athleteProfile]);
+
+  async function migrateStaleGreetings() {
+    const MIGRATION_KEY = 'chatMigration_v1_clearFabricatedGreetings';
+    try {
+      const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
+      if (migrated) return;
+
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const msgs = JSON.parse(stored);
+        const cleaned = msgs.filter((msg) => {
+          if (!msg.metadata?.proactive) return true;
+          // Remove proactive greetings that contain percentage claims (fabricated stats)
+          return !/\d+%/.test(msg.content);
+        });
+        if (cleaned.length !== msgs.length) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+          // Reset greeting date so a fresh one is generated
+          await AsyncStorage.removeItem('lastGreetingDate');
+          // eslint-disable-next-line no-console
+          console.log(
+            `[Chat] Migrated: removed ${msgs.length - cleaned.length} stale proactive greetings`
+          );
+        }
+      }
+      await AsyncStorage.setItem(MIGRATION_KEY, 'done');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[Chat] Migration failed:', e.message || e);
+    }
+  }
 
   async function loadConversation() {
     try {
@@ -191,6 +226,7 @@ export function ChatProvider({ children }) {
       overallReadiness,
       workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
       conversationSummary: buildConversationSummary(messages),
+      trends,
       onWorkoutSwap: swapTodayWorkout,
       onProfileUpdate: saveProfile,
     };
@@ -243,6 +279,18 @@ export function ChatProvider({ children }) {
         const finalMessages = [...updatedMessages, coachMessage];
         setMessages(finalMessages);
         await persistMessages(finalMessages);
+
+        // Extract and persist athlete insights for workout adaptability
+        // Pass existing insights so active load adjustments carry forward across messages
+        const insights = extractAthleteInsights(finalMessages, athleteProfile?.athleteInsights);
+        if (insights && saveProfile && athleteProfile) {
+          const currentInsights = athleteProfile.athleteInsights;
+          const insightsChanged =
+            !currentInsights || JSON.stringify(currentInsights) !== JSON.stringify(insights);
+          if (insightsChanged) {
+            await saveProfile({ ...athleteProfile, athleteInsights: insights });
+          }
+        }
       } catch (e) {
         console.warn('Failed to get coach response:', e);
         const errorMessage = {

@@ -1,17 +1,28 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchHealthData, calculateReadiness, fetchCompletedWorkouts } from '../services/healthKit';
 import {
-  findYesterdayWorkouts,
+  fetchHealthData,
+  fetchHealthHistory,
+  calculateReadiness,
+  fetchCompletedWorkouts,
+} from '../services/healthKit';
+import { analyzeHealthTrends, analyzeWorkoutTrends } from '../services/trendAnalysis';
+import {
   findYesterdayCompletedWorkouts,
-  calculateCompletionScore,
   calculateRecentComplianceScore,
   calculateRecentActivityScore,
   calculateRacePreparationScore,
   calculateOverallReadiness,
+  calculateDailyComplianceScore,
   getCompletionFeedback,
 } from '../services/workoutScoring';
-import { initLocalModel, isModelReady, onModelProgress } from '../services/localModel';
+import {
+  initLocalModel,
+  isModelReady,
+  onModelProgress,
+  getWeeklyDisciplinePlan,
+  getBaseDuration,
+} from '../services/localModel';
 
 const AppContext = createContext();
 
@@ -29,6 +40,9 @@ export function AppProvider({ children }) {
   const [overallReadiness, setOverallReadiness] = useState(null);
   const [workoutHistory, setWorkoutHistory] = useState([]);
   const [completedWorkouts, setCompletedWorkouts] = useState([]);
+  const [todayWorkoutStatus, setTodayWorkoutStatus] = useState('pending');
+  const [todayMatchedWorkout, setTodayMatchedWorkout] = useState(null);
+  const [trends, setTrends] = useState(null);
   const [modelStatus, setModelStatus] = useState('idle');
   const [modelProgress, setModelProgress] = useState(0);
 
@@ -55,6 +69,18 @@ export function AppProvider({ children }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workoutHistory, completedWorkouts, readinessScore]);
+
+  useEffect(() => {
+    detectTodayCompletion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedWorkouts, todayWorkout]);
+
+  useEffect(() => {
+    if (completedWorkouts && completedWorkouts.length > 0) {
+      computeTrends();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedWorkouts, healthData]);
 
   async function loadProfile() {
     try {
@@ -130,7 +156,11 @@ export function AppProvider({ children }) {
 
   async function loadCompletedWorkouts() {
     try {
-      const workouts = await fetchCompletedWorkouts(14);
+      const enrichOptions = {
+        restingHR: healthData?.restingHR || null,
+        age: athleteProfile?.age || null,
+      };
+      const workouts = await fetchCompletedWorkouts(14, enrichOptions);
       setCompletedWorkouts(workouts);
     } catch (e) {
       console.warn('Failed to load completed workouts:', e);
@@ -176,46 +206,105 @@ export function AppProvider({ children }) {
     setAlternativeWorkout(workout);
   }
 
-  function computeYesterdayScore(history, healthWorkouts) {
-    // Try Apple Health completed workouts first
+  function computeYesterdayScore(_history, healthWorkouts) {
+    // Only use Apple Health data — no manual fallback
     const yesterdayHealthWorkouts = findYesterdayCompletedWorkouts(healthWorkouts);
-    if (yesterdayHealthWorkouts.length > 0) {
-      const totalMinutes = yesterdayHealthWorkouts.reduce(
-        (sum, w) => sum + (w.durationMinutes || 0),
-        0
-      );
-      const durationScore = Math.min(Math.round((totalMinutes / 60) * 100), 100);
-      const feedback = getCompletionFeedback(durationScore);
-      const allWorkouts = yesterdayHealthWorkouts.map((w) => ({
-        title: `${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)} Session`,
-        discipline: w.discipline,
-        duration: w.durationMinutes,
-        startDate: w.startDate,
-      }));
-      setYesterdayScore({
-        completionScore: durationScore,
-        feedback,
-        completedWorkout: allWorkouts[allWorkouts.length - 1],
-        allWorkouts,
-      });
-      return;
-    }
-
-    // Fall back to manual workout history
-    const yesterdayWorkouts = findYesterdayWorkouts(history);
-    if (yesterdayWorkouts.length === 0) {
+    if (yesterdayHealthWorkouts.length === 0) {
       setYesterdayScore(null);
       return;
     }
-    const latest = yesterdayWorkouts[yesterdayWorkouts.length - 1];
-    const completionScore = calculateCompletionScore(latest);
-    const feedback = getCompletionFeedback(completionScore);
+
+    // Reconstruct what was prescribed yesterday
+    const phase = getTrainingPhase();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayDay = yesterday.getDay();
+    const plan = athleteProfile ? getWeeklyDisciplinePlan(phase, athleteProfile) : null;
+    const prescribedDiscipline = plan ? plan[yesterdayDay] : null;
+    const prescribedDuration = athleteProfile
+      ? getBaseDuration(phase, athleteProfile.weeklyHours)
+      : 60;
+
+    // Build prescribed workout for compliance comparison
+    const prescribedWorkout = prescribedDiscipline
+      ? { discipline: prescribedDiscipline, duration: prescribedDuration }
+      : null;
+
+    // Use compliance scoring (compares discipline + duration match)
+    const complianceScore = calculateDailyComplianceScore(
+      prescribedWorkout,
+      yesterdayHealthWorkouts
+    );
+    const score = complianceScore ?? 0;
+    const feedback = getCompletionFeedback(score);
+
+    const allWorkouts = yesterdayHealthWorkouts.map((w) => ({
+      title:
+        w.activityName ||
+        `${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)} Session`,
+      discipline: w.discipline,
+      duration: w.durationMinutes,
+      startDate: w.startDate,
+    }));
+
     setYesterdayScore({
-      completionScore,
+      completionScore: score,
+      prescribedDiscipline,
+      prescribedDuration,
       feedback,
-      completedWorkout: latest,
-      allWorkouts: [latest],
+      completedWorkout: allWorkouts[allWorkouts.length - 1],
+      allWorkouts,
     });
+  }
+
+  function detectTodayCompletion() {
+    if (!todayWorkout || !completedWorkouts || completedWorkouts.length === 0) {
+      setTodayWorkoutStatus('pending');
+      setTodayMatchedWorkout(null);
+      return;
+    }
+
+    const today = new Date().toDateString();
+    const todayWorkouts = completedWorkouts.filter(
+      (w) => w.startDate && new Date(w.startDate).toDateString() === today
+    );
+
+    if (todayWorkouts.length === 0) {
+      setTodayWorkoutStatus('pending');
+      setTodayMatchedWorkout(null);
+      return;
+    }
+
+    // Check if any today workout matches prescribed discipline
+    const matched = todayWorkouts.find((w) => w.discipline === todayWorkout.discipline);
+    if (matched) {
+      const durationRatio = (matched.durationMinutes || 0) / (todayWorkout.duration || 60);
+      if (durationRatio >= 0.8) {
+        setTodayWorkoutStatus('completed');
+      } else {
+        setTodayWorkoutStatus('partial');
+      }
+      setTodayMatchedWorkout(matched);
+    } else if (todayWorkouts.length > 0) {
+      // Did a different workout than prescribed
+      setTodayWorkoutStatus('partial');
+      setTodayMatchedWorkout(todayWorkouts[0]);
+    } else {
+      setTodayWorkoutStatus('pending');
+      setTodayMatchedWorkout(null);
+    }
+  }
+
+  async function computeTrends() {
+    try {
+      const healthHistory = await fetchHealthHistory(14);
+      const healthTrends = analyzeHealthTrends(healthHistory);
+      const workoutTrends = analyzeWorkoutTrends(completedWorkouts, 14);
+      setTrends({ health: healthTrends, workout: workoutTrends });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[Trends] Failed to compute:', e.message || e);
+    }
   }
 
   function computeOverallReadiness(healthScore, history, healthWorkouts) {
@@ -275,6 +364,9 @@ export function AppProvider({ children }) {
     loadWorkoutHistory,
     completedWorkouts,
     loadCompletedWorkouts,
+    todayWorkoutStatus,
+    todayMatchedWorkout,
+    trends,
     modelStatus,
     modelProgress,
   };

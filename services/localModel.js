@@ -177,6 +177,9 @@ export async function generateWorkoutLocally({
   phase,
   daysToRace,
   completedWorkouts,
+  targetDate,
+  targetDiscipline,
+  trends,
 }) {
   const raceType = profile.raceType || 'triathlon';
   const coachType = isRunningOnly(profile) ? 'running' : 'endurance triathlon';
@@ -189,9 +192,30 @@ export async function generateWorkoutLocally({
 Respond ONLY with valid JSON matching this structure:
 {"title":"string","discipline":"${disciplines.join('|')}|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}`;
 
+  const insights = profile.athleteInsights;
+  const activeAdjustment =
+    insights?.loadAdjustmentExpiry && new Date(insights.loadAdjustmentExpiry) > new Date();
+  const restRequestedToday =
+    insights?.requestedRestDay &&
+    new Date(insights.requestedRestDay).toDateString() ===
+      (targetDate || new Date()).toDateString();
+  const insightsContext = insights
+    ? `\nAthlete mood: ${insights.recentMood}.` +
+      (insights.painPoints?.length ? ` Pain: ${insights.painPoints.join(', ')}.` : '') +
+      (insights.preferredIntensity ? ` Prefers ${insights.preferredIntensity} workouts.` : '') +
+      (activeAdjustment
+        ? ` Load adjustment active: ${insights.loadAdjustment} intensity/volume (expires ${new Date(insights.loadAdjustmentExpiry).toLocaleDateString()}).`
+        : '') +
+      (restRequestedToday ? ' Athlete requested rest today — prescribe rest.' : '')
+    : '';
+
+  const trendsContext = trends?.health?.overallTrend
+    ? `\nTrend: ${trends.health.overallTrend}.${trends.health.overallTrend === 'fatiguing' ? ' Reduce intensity and duration.' : ''}${trends.workout?.volumeTrend === 'increasing' ? ' Volume increasing — monitor load.' : ''}`
+    : '';
+
   const userPrompt = `Athlete: ${profile.level || 'Intermediate'}, ${raceType} - ${profile.distance}, weekly hrs: ${profile.weeklyHours}, strongest: ${profile.strongestDiscipline}, weakest: ${profile.weakestDiscipline}, injuries: ${profile.injuries}, goal: ${profile.goalTime}.
 Status: phase=${phase}, days to race=${daysToRace}, readiness=${readinessScore}/100, RHR=${healthData?.restingHR || 'N/A'}bpm, HRV=${healthData?.hrv || 'N/A'}ms, sleep=${healthData?.sleepHours?.toFixed(1) || 'N/A'}h.
-Day: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}.${recentActivity ? `\nRecent Apple Health activity:\n${recentActivity}` : ''}`;
+Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' })}.${targetDiscipline ? `\nTarget discipline: ${targetDiscipline}.` : ''}${insightsContext}${trendsContext}${recentActivity ? `\nRecent Apple Health activity:\n${recentActivity}` : ''}`;
 
   // Try local model first
   const modelResponse = await runInference(systemPrompt, userPrompt);
@@ -215,6 +239,9 @@ Day: ${new Date().toLocaleDateString('en-US', { weekday: 'long' })}.${recentActi
     phase,
     daysToRace,
     completedWorkouts,
+    targetDate,
+    targetDiscipline,
+    trends,
   });
 }
 
@@ -535,60 +562,94 @@ function generateRuleBasedWorkout({
   phase,
   _daysToRace,
   completedWorkouts,
+  targetDate,
+  targetDiscipline,
+  trends,
 }) {
-  const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ...
+  const date = targetDate || new Date();
+  const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ...
   const score = readinessScore || 65;
+  const isFatiguing = trends?.health?.overallTrend === 'fatiguing';
 
-  // Recovery day
-  if (score < 55) {
-    return {
-      title: 'Active Recovery',
-      discipline: 'rest',
-      duration: 30,
-      summary: 'Your readiness is low. Focus on gentle movement and recovery.',
-      intensity: 'recovery',
-      sections: [
-        {
-          name: 'Recovery Session',
-          notes: 'Keep everything easy. Focus on breathing and mobility.',
-          sets: [
-            { description: '10 min easy walk or gentle spin', zone: 1 },
-            { description: '10 min stretching and foam rolling', zone: null },
-            { description: '10 min yoga or mobility work', zone: null },
-          ],
-        },
-      ],
-    };
-  }
+  // Use explicit discipline if provided, otherwise derive from weekly plan
+  let discipline;
+  if (targetDiscipline) {
+    discipline = targetDiscipline;
+  } else {
+    const weekPlan = getWeeklyDisciplinePlan(phase, profile);
+    discipline = weekPlan[dayOfWeek];
 
-  // Check yesterday's discipline from HealthKit to avoid repeats
-  const yesterdayDiscipline = getYesterdayDiscipline(completedWorkouts);
+    // If a discipline is under-trained, prioritize it
+    const balance = trends?.workout?.disciplineBalance;
+    if (balance && !targetDiscipline && discipline !== 'rest') {
+      const activeDisciplines = getDisciplinesForProfile(profile).filter(
+        (d) => d !== 'rest' && d !== 'strength'
+      );
+      const undertrained = activeDisciplines.find(
+        (d) => (balance[d] || 0) === 0 && d !== discipline
+      );
+      if (undertrained) {
+        discipline = undertrained;
+      }
+    }
 
-  // Map days to disciplines with weekly structure
-  const weekPlan = getWeeklyDisciplinePlan(phase, profile);
-  let todayPlan = weekPlan[dayOfWeek];
-
-  // Avoid repeating yesterday's discipline if possible
-  if (yesterdayDiscipline && todayPlan === yesterdayDiscipline && todayPlan !== 'rest') {
-    const activeDisciplines = getDisciplinesForProfile(profile).filter(
-      (d) => d !== 'rest' && d !== 'strength' && d !== yesterdayDiscipline
-    );
-    if (activeDisciplines.length > 0) {
-      todayPlan = activeDisciplines[0];
+    // Avoid repeating yesterday's discipline if possible (only for today)
+    if (!targetDate) {
+      const yesterdayDiscipline = getYesterdayDiscipline(completedWorkouts);
+      if (yesterdayDiscipline && discipline === yesterdayDiscipline && discipline !== 'rest') {
+        const activeDisciplines = getDisciplinesForProfile(profile).filter(
+          (d) => d !== 'rest' && d !== 'strength' && d !== yesterdayDiscipline
+        );
+        if (activeDisciplines.length > 0) {
+          discipline = activeDisciplines[0];
+        }
+      }
     }
   }
 
   // Adjust duration based on phase and available hours
   const baseDuration = getBaseDuration(phase, profile.weeklyHours);
-  const adjustedDuration =
+  let adjustedDuration =
     score >= 75 ? Math.round(baseDuration * 1.1) : Math.round(baseDuration * 0.9);
 
-  return buildWorkout(todayPlan, adjustedDuration, score, phase, profile);
+  // Fatigue trend: reduce duration by 15% and cap intensity at moderate
+  if (isFatiguing) {
+    adjustedDuration = Math.round(adjustedDuration * 0.85);
+  }
+
+  let effectiveScore = isFatiguing ? Math.min(score, 74) : score;
+
+  // Check for coach-set load adjustment from conversation
+  const insights = profile.athleteInsights;
+  const adjustmentActive =
+    insights?.loadAdjustmentExpiry && new Date(insights.loadAdjustmentExpiry) > new Date();
+
+  // Rest day override: if athlete explicitly requested rest today
+  const restToday =
+    insights?.requestedRestDay &&
+    new Date(insights.requestedRestDay).toDateString() === date.toDateString();
+  if (restToday) {
+    discipline = 'rest';
+  }
+
+  // Apply load reduction
+  if (adjustmentActive && insights.loadAdjustment === 'reduce' && discipline !== 'rest') {
+    adjustedDuration = Math.round(adjustedDuration * 0.75);
+    effectiveScore = Math.min(effectiveScore, 64); // cap at moderate (below 65 threshold for hard)
+  }
+
+  // Apply load increase
+  if (adjustmentActive && insights.loadAdjustment === 'increase' && discipline !== 'rest') {
+    adjustedDuration = Math.round(adjustedDuration * 1.15);
+  }
+
+  return buildWorkout(discipline, adjustedDuration, effectiveScore, phase, profile);
 }
 
 export function getWeeklyDisciplinePlan(phase, profile) {
   if (isRunningOnly(profile)) {
-    return getRunningWeekPlan(phase);
+    const basePlan = getRunningWeekPlan(phase);
+    return applySchedulePreferences(basePlan, profile, 'run');
   }
   const weak = profile.weakestDiscipline?.toLowerCase() || 'swim';
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
@@ -599,7 +660,80 @@ export function getWeeklyDisciplinePlan(phase, profile) {
     TAPER: ['rest', 'swim', 'bike', 'run', 'rest', 'swim', 'bike'],
     RACE_WEEK: ['rest', 'swim', 'bike', 'run', 'rest', 'rest', 'rest'],
   };
-  return plans[phase] || plans.BASE;
+  const basePlan = plans[phase] || plans.BASE;
+  return applySchedulePreferences(basePlan, profile, 'bike');
+}
+
+/**
+ * Apply user schedule preferences to a base weekly plan.
+ * Moves long disciplines to preferred days and sets rest days.
+ */
+function applySchedulePreferences(plan, profile, longDiscipline) {
+  const prefs = profile?.schedulePreferences;
+  if (!prefs) return plan;
+
+  const result = [...plan];
+
+  // Apply rest days first
+  if (prefs.restDays && prefs.restDays.length > 0) {
+    const displaced = [];
+    for (const day of prefs.restDays) {
+      if (result[day] !== 'rest') {
+        displaced.push(result[day]);
+        result[day] = 'rest';
+      }
+    }
+    // Put displaced disciplines in empty non-rest slots
+    for (const discipline of displaced) {
+      const emptySlot = result.findIndex(
+        (d, i) => d === 'rest' && !prefs.restDays.includes(i) && !(prefs.longDays || []).includes(i)
+      );
+      if (emptySlot >= 0) {
+        result[emptySlot] = discipline;
+      }
+    }
+  }
+
+  // Apply avoid days (same as rest days)
+  if (prefs.avoidDays && prefs.avoidDays.length > 0) {
+    const displaced = [];
+    for (const day of prefs.avoidDays) {
+      if (result[day] !== 'rest') {
+        displaced.push(result[day]);
+        result[day] = 'rest';
+      }
+    }
+    for (const discipline of displaced) {
+      const emptySlot = result.findIndex(
+        (d, i) =>
+          d === 'rest' &&
+          !(prefs.restDays || []).includes(i) &&
+          !(prefs.avoidDays || []).includes(i) &&
+          !(prefs.longDays || []).includes(i)
+      );
+      if (emptySlot >= 0) {
+        result[emptySlot] = discipline;
+      }
+    }
+  }
+
+  // Apply long days — move the long discipline to preferred days
+  if (prefs.longDays && prefs.longDays.length > 0) {
+    for (const day of prefs.longDays) {
+      if (result[day] === 'rest') continue; // Don't override rest days
+      const currentLongIdx = result.findIndex(
+        (d, i) => d === longDiscipline && !prefs.longDays.includes(i)
+      );
+      if (currentLongIdx >= 0 && result[day] !== longDiscipline) {
+        // Swap the long discipline into the preferred day
+        const displaced = result[day];
+        result[day] = longDiscipline;
+        result[currentLongIdx] = displaced;
+      }
+    }
+  }
+
+  return result;
 }
 
 function getRunningWeekPlan(phase) {
@@ -637,7 +771,7 @@ function formatRecentWorkouts(completedWorkouts) {
     .join(', ');
 }
 
-function getBaseDuration(phase, weeklyHours) {
+export function getBaseDuration(phase, weeklyHours) {
   const hoursMap = { '5-7': 50, '8-10': 70, '11-14': 85, '15+': 100 };
   const base = hoursMap[weeklyHours] || 60;
   const phaseMultiplier = {

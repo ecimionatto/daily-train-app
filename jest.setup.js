@@ -69,18 +69,17 @@ jest.mock('llama.rn', () => ({
   releaseAllLlama: jest.fn().mockResolvedValue(undefined),
 }));
 
-// react-native-health mock
+// react-native-health mock — matches real library's module.exports structure
 jest.mock('react-native-health', () => ({
-  default: {
-    initHealthKit: jest.fn((_, cb) => cb(null)),
-    getRestingHeartRateSamples: jest.fn((_, cb) => cb(null, [])),
-    getRestingHeartRate: jest.fn((_, cb) => cb(null, null)),
-    getHeartRateVariabilitySamples: jest.fn((_, cb) => cb(null, [])),
-    getSleepSamples: jest.fn((_, cb) => cb(null, [])),
-    getVo2MaxSamples: jest.fn((_, cb) => cb(null, [])),
-    getSamples: jest.fn((_, cb) => cb(null, [])),
-  },
-  HealthKitPermissions: {},
+  initHealthKit: jest.fn((_, cb) => cb(null)),
+  getRestingHeartRateSamples: jest.fn((_, cb) => cb(null, [])),
+  getRestingHeartRate: jest.fn((_, cb) => cb(null, null)),
+  getHeartRateVariabilitySamples: jest.fn((_, cb) => cb(null, [])),
+  getSleepSamples: jest.fn((_, cb) => cb(null, [])),
+  getVo2MaxSamples: jest.fn((_, cb) => cb(null, [])),
+  getSamples: jest.fn((_, cb) => cb(null, [])),
+  getHeartRateSamples: jest.fn((_, cb) => cb(null, [])),
+  Constants: { Permissions: {} },
 }));
 
 // Silence console.warn and act() warnings in tests

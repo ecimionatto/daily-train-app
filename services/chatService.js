@@ -1,6 +1,239 @@
 import { runInference } from './localModel';
 import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
+import { generateTrendSummary } from './trendAnalysis';
+
+const FATIGUE_KEYWORDS = [
+  'tired',
+  'exhausted',
+  'fatigue',
+  'burnout',
+  'drained',
+  'low energy',
+  'worn out',
+  'wiped',
+  'overtraining',
+  'need rest',
+  'need a break',
+];
+
+const PAIN_KEYWORDS = ['pain', 'hurt', 'injury', 'sore', 'ache', 'stiff', 'strain', 'pulled'];
+
+const BODY_PARTS = [
+  'knee',
+  'shoulder',
+  'back',
+  'hip',
+  'ankle',
+  'hamstring',
+  'calf',
+  'shin',
+  'neck',
+  'wrist',
+  'elbow',
+  'quad',
+  'glute',
+  'achilles',
+  'foot',
+  'IT band',
+];
+
+const INTENSITY_EASIER_KEYWORDS = ['easier', 'too hard', 'lighter', 'less intense', 'dial back'];
+const INTENSITY_HARDER_KEYWORDS = ['harder', 'too easy', 'push me', 'more intense', 'step up'];
+
+const LOAD_REDUCE_KEYWORDS = [
+  'take it easy',
+  'easier this week',
+  'reduce load',
+  'back off',
+  'dial it back',
+  'too much',
+  'lighter week',
+  'cut back',
+  'ease up',
+  'reduce my training',
+  'less training',
+];
+
+const LOAD_INCREASE_KEYWORDS = [
+  'push harder',
+  'more volume',
+  'increase load',
+  'step it up',
+  'push me harder',
+  'train more',
+  'increase my training',
+];
+
+const REST_DAY_KEYWORDS = [
+  'take tomorrow off',
+  'day off tomorrow',
+  'rest tomorrow',
+  'skip tomorrow',
+  'tomorrow off',
+  'need a rest day',
+  'give me tomorrow off',
+];
+
+const DISCIPLINE_FOCUS_MAP = {
+  swim: ['more swimming', 'focus on swim', 'swim more', 'work on my swim', 'more swim'],
+  bike: ['more cycling', 'focus on bike', 'bike more', 'more riding', 'work on my bike'],
+  run: ['more running', 'focus on run', 'run more', 'work on my running', 'more run'],
+};
+
+const MOTIVATION_POSITIVE = [
+  'feeling great',
+  'strong',
+  'motivated',
+  'pumped',
+  'fired up',
+  'ready',
+  'excited',
+  'confident',
+];
+
+/**
+ * Returns the number of days remaining until the end of the current week (Sunday=0).
+ */
+function daysUntilEndOfWeek() {
+  const day = new Date().getDay(); // 0=Sun
+  return day === 0 ? 0 : 7 - day;
+}
+
+/**
+ * Extract persistent athlete insights from conversation history.
+ * Analyzes recent messages (last 7 days) for mood, pain, intensity preferences,
+ * and multi-day load adjustments requested through the coach chat.
+ *
+ * @param {Array} messages - Full conversation history
+ * @param {Object|null} existingInsights - Current athleteInsights to carry forward active adjustments
+ */
+export function extractAthleteInsights(messages, existingInsights = null) {
+  if (!messages || messages.length === 0) return null;
+
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentAthleteMessages = messages.filter(
+    (m) => m.role === 'athlete' && new Date(m.timestamp).getTime() > sevenDaysAgo
+  );
+
+  if (recentAthleteMessages.length === 0) return null;
+
+  let recentMood = 'neutral';
+  let lastFatigueReport = null;
+  let preferredIntensity = null;
+  const painPoints = [];
+  const themes = [];
+
+  let loadAdjustment = null;
+  let loadAdjustmentExpiry = null;
+  let loadAdjustmentDays = null;
+  let requestedRestDay = null;
+  let requestedDisciplineFocus = null;
+
+  for (const msg of recentAthleteMessages) {
+    const lower = msg.content.toLowerCase();
+
+    // Detect fatigue
+    if (FATIGUE_KEYWORDS.some((kw) => lower.includes(kw))) {
+      recentMood = 'fatigued';
+      lastFatigueReport = msg.timestamp;
+      if (!themes.includes('fatigue')) themes.push('fatigue');
+    }
+
+    // Detect pain/injury + body part
+    if (PAIN_KEYWORDS.some((kw) => lower.includes(kw))) {
+      recentMood = 'injured';
+      for (const part of BODY_PARTS) {
+        if (lower.includes(part.toLowerCase()) && !painPoints.includes(part)) {
+          painPoints.push(part);
+        }
+      }
+      if (!themes.includes('injury')) themes.push('injury');
+    }
+
+    // Detect intensity preference
+    if (INTENSITY_EASIER_KEYWORDS.some((kw) => lower.includes(kw))) {
+      preferredIntensity = 'easier';
+    }
+    if (INTENSITY_HARDER_KEYWORDS.some((kw) => lower.includes(kw))) {
+      preferredIntensity = 'harder';
+    }
+
+    // Detect positive motivation (overrides fatigue if more recent)
+    if (MOTIVATION_POSITIVE.some((kw) => lower.includes(kw))) {
+      if (recentMood === 'neutral') recentMood = 'motivated';
+      if (!themes.includes('motivation')) themes.push('motivation');
+    }
+
+    // Detect multi-day load reduction request
+    if (
+      LOAD_REDUCE_KEYWORDS.some((kw) => lower.includes(kw)) ||
+      FATIGUE_KEYWORDS.some((kw) => lower.includes(kw))
+    ) {
+      loadAdjustment = 'reduce';
+      const days = lower.includes('this week') || lower.includes('week') ? daysUntilEndOfWeek() : 3;
+      loadAdjustmentDays = days || 3;
+      const expiry = new Date();
+      expiry.setDate(expiry.getDate() + loadAdjustmentDays);
+      loadAdjustmentExpiry = expiry.toISOString();
+    }
+
+    // Detect load increase request
+    if (LOAD_INCREASE_KEYWORDS.some((kw) => lower.includes(kw))) {
+      loadAdjustment = 'increase';
+      loadAdjustmentDays = 7;
+      const expiry = new Date();
+      expiry.setDate(expiry.getDate() + 7);
+      loadAdjustmentExpiry = expiry.toISOString();
+    }
+
+    // Detect explicit rest day request for tomorrow
+    if (REST_DAY_KEYWORDS.some((kw) => lower.includes(kw))) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      requestedRestDay = tomorrow.toISOString();
+    }
+
+    // Detect discipline focus request
+    for (const [discipline, keywords] of Object.entries(DISCIPLINE_FOCUS_MAP)) {
+      if (keywords.some((kw) => lower.includes(kw))) {
+        requestedDisciplineFocus = discipline;
+        break;
+      }
+    }
+
+    // Detect topic themes
+    const topic = classifyMessage(msg.content);
+    if (!themes.includes(topic) && topic !== 'general') {
+      themes.push(topic);
+    }
+  }
+
+  // Carry forward active adjustments from existing insights when no new signal was detected
+  const now = new Date();
+  const existingAdjustmentActive =
+    existingInsights?.loadAdjustmentExpiry && new Date(existingInsights.loadAdjustmentExpiry) > now;
+
+  return {
+    recentMood,
+    painPoints,
+    preferredIntensity,
+    lastFatigueReport,
+    conversationThemes: themes.slice(0, 5),
+    extractedAt: new Date().toISOString(),
+    loadAdjustment:
+      loadAdjustment ?? (existingAdjustmentActive ? existingInsights.loadAdjustment : null),
+    loadAdjustmentExpiry:
+      loadAdjustmentExpiry ??
+      (existingAdjustmentActive ? existingInsights.loadAdjustmentExpiry : null),
+    loadAdjustmentDays:
+      loadAdjustmentDays ?? (existingAdjustmentActive ? existingInsights.loadAdjustmentDays : null),
+    requestedRestDay: requestedRestDay ?? existingInsights?.requestedRestDay ?? null,
+    requestedDisciplineFocus:
+      requestedDisciplineFocus ?? existingInsights?.requestedDisciplineFocus ?? null,
+  };
+}
 
 const TRAINING_KEYWORDS = [
   'workout',
@@ -179,6 +412,16 @@ export async function getCoachResponse(userMessage, context, conversationHistory
     return handleProfileChange(userMessage, context);
   }
 
+  // Handle schedule preference changes
+  if (category === 'schedule_preference' && context.onProfileUpdate) {
+    return handleSchedulePreference(userMessage, context);
+  }
+
+  // Handle multi-day load adjustments (fatigue, rest day, discipline focus)
+  if (category === 'load_adjustment' && context.onProfileUpdate) {
+    return handleLoadAdjustment(userMessage, context);
+  }
+
   // Handle workout swap requests
   if (
     (category === 'workout_swap' || category === 'workout_modification') &&
@@ -198,6 +441,177 @@ export async function getCoachResponse(userMessage, context, conversationHistory
   }
 
   return generateFallbackResponse(category, userMessage, context);
+}
+
+/**
+ * Parse day references from a user message.
+ * Returns array of day indices (0=Sunday, 6=Saturday).
+ */
+function parseDaysFromMessage(message) {
+  const lower = message.toLowerCase();
+  const dayMap = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+  const found = [];
+
+  if (lower.includes('weekend')) {
+    found.push(0, 6); // Sunday + Saturday
+  }
+  if (lower.includes('weekday')) {
+    found.push(1, 2, 3, 4, 5);
+  }
+
+  for (const [name, index] of Object.entries(dayMap)) {
+    if (lower.includes(name)) {
+      if (!found.includes(index)) found.push(index);
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Detect the intent type from a schedule preference message.
+ * Returns 'longDays', 'restDays', or 'avoidDays'.
+ */
+function parseScheduleIntent(message) {
+  const lower = message.toLowerCase();
+  const restKeywords = [
+    'rest on',
+    'day off',
+    'no training',
+    'rest day',
+    'avoid training',
+    'move rest',
+    'change rest',
+  ];
+  if (restKeywords.some((kw) => lower.includes(kw))) return 'restDays';
+
+  const avoidKeywords = ['avoid', 'skip', 'no workout', 'free on'];
+  if (avoidKeywords.some((kw) => lower.includes(kw))) return 'avoidDays';
+
+  // Default to longDays for "long sessions on...", "prefer weekends", etc.
+  return 'longDays';
+}
+
+/**
+ * Handle a schedule preference change from the coach chat.
+ * Parses day preferences and persists them to the athlete profile.
+ */
+async function handleSchedulePreference(userMessage, context) {
+  const { athleteProfile, onProfileUpdate } = context;
+  const days = parseDaysFromMessage(userMessage);
+
+  if (days.length === 0) {
+    return "I'd like to adjust your schedule, but I couldn't determine which days you mean. Try something like 'I want long sessions on weekends' or 'Move my rest day to Friday'.";
+  }
+
+  const intent = parseScheduleIntent(userMessage);
+  const existing = athleteProfile.schedulePreferences || {};
+  const updated = {
+    ...athleteProfile,
+    schedulePreferences: {
+      ...existing,
+      [intent]: days,
+    },
+  };
+
+  await onProfileUpdate(updated);
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayList = days.map((d) => dayNames[d]).join(' and ');
+
+  const responses = {
+    longDays: `Done! I've updated your plan to schedule long sessions on ${dayList}. Your calendar and daily workouts will reflect this change. The bike and long endurance sessions will now be placed on ${dayList}.`,
+    restDays: `Done! I've set ${dayList} as rest days in your plan. Your weekly schedule will adjust to keep training balanced on the remaining days.`,
+    avoidDays: `Got it! I've marked ${dayList} as days to avoid training. I'll redistribute your workouts across the other days of the week.`,
+  };
+
+  return responses[intent];
+}
+
+/**
+ * Handle a multi-day load adjustment request.
+ * Persists load change to athleteInsights so future workout generation adapts.
+ * Returns a concrete confirmation message to the athlete.
+ */
+async function handleLoadAdjustment(userMessage, context) {
+  const { athleteProfile, onProfileUpdate } = context;
+  if (!onProfileUpdate || !athleteProfile) {
+    return generateFallbackResponse('recovery', userMessage, context);
+  }
+
+  const lower = userMessage.toLowerCase();
+  const isRestDayRequest = REST_DAY_KEYWORDS.some((kw) => lower.includes(kw));
+  const isReduceRequest =
+    LOAD_REDUCE_KEYWORDS.some((kw) => lower.includes(kw)) ||
+    FATIGUE_KEYWORDS.some((kw) => lower.includes(kw));
+  const isIncreaseRequest = LOAD_INCREASE_KEYWORDS.some((kw) => lower.includes(kw));
+
+  const existingInsights = athleteProfile.athleteInsights || null;
+  const newInsights = extractAthleteInsights(
+    [{ role: 'athlete', content: userMessage, timestamp: new Date().toISOString() }],
+    existingInsights
+  );
+
+  const confirmationParts = [];
+
+  if (isRestDayRequest && newInsights.requestedRestDay) {
+    const tomorrowLabel = new Date(newInsights.requestedRestDay).toLocaleDateString('en-US', {
+      weekday: 'long',
+    });
+    confirmationParts.push(`set ${tomorrowLabel} as a rest day for you`);
+  }
+
+  if (isReduceRequest && !isRestDayRequest) {
+    const days = newInsights.loadAdjustmentDays || 3;
+    confirmationParts.push(
+      `reduced your training load for the next ${days} day${days !== 1 ? 's' : ''} — shorter sessions and lower intensity`
+    );
+  }
+
+  if (isIncreaseRequest) {
+    confirmationParts.push('increased your training load for the next 7 days');
+  }
+
+  const disciplineFocus = newInsights.requestedDisciplineFocus;
+  if (disciplineFocus) {
+    confirmationParts.push(`prioritized ${disciplineFocus} sessions in your upcoming plan`);
+  }
+
+  if (confirmationParts.length === 0) {
+    return generateFallbackResponse('recovery', userMessage, context);
+  }
+
+  const updatedProfile = {
+    ...athleteProfile,
+    athleteInsights: newInsights,
+    ...(disciplineFocus
+      ? {
+          weakestDiscipline: disciplineFocus.charAt(0).toUpperCase() + disciplineFocus.slice(1),
+        }
+      : {}),
+  };
+
+  await onProfileUpdate(updatedProfile);
+
+  const name = athleteProfile.name ? `${athleteProfile.name}, ` : '';
+  const expiryStr =
+    newInsights.loadAdjustmentExpiry && isReduceRequest
+      ? ` through ${new Date(newInsights.loadAdjustmentExpiry).toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'short',
+          day: 'numeric',
+        })}`
+      : '';
+
+  return `Got it, ${name}I've ${confirmationParts.join(' and ')}${expiryStr}. Your workouts will adapt automatically — listen to your body and let me know if you need further adjustments.`;
 }
 
 /**
@@ -367,7 +781,10 @@ export function buildCoachSystemPrompt(context) {
   const raceType = athleteProfile?.raceType || 'triathlon';
   const coachType = isRunningOnly(athleteProfile) ? 'running' : 'endurance triathlon';
 
-  sections.push(`You are an elite ${coachType} coach named Coach. You provide concise, personalized coaching advice.
+  const athleteName = athleteProfile?.name || null;
+  sections.push(`You are an elite ${coachType} coach named Alex. Your name is Alex.
+You are coaching ${athleteName ? athleteName : 'the athlete'}.
+Always address the athlete as '${athleteName || 'you'}'. Never call the athlete 'Coach'.
 You are ONLY an ${coachType} coach. If the athlete asks about non-training topics, politely decline and redirect to training.
 When the athlete is struggling, encourage them but also offer to adjust the workout. Push them to follow their plan.`);
 
@@ -398,8 +815,16 @@ When the athlete is struggling, encourage them but also offer to adjust the work
   }
 
   if (yesterdayScore) {
+    const prescribed = yesterdayScore.prescribedDiscipline
+      ? `${yesterdayScore.prescribedDiscipline} ${yesterdayScore.prescribedDuration}min`
+      : 'N/A';
+    const actual =
+      yesterdayScore.allWorkouts?.map((w) => `${w.discipline} ${w.duration}min`).join(', ') ||
+      'none';
     sections.push(`YESTERDAY'S PERFORMANCE:
-- Completion: ${yesterdayScore.completionScore ?? 'N/A'}%
+- Prescribed: ${prescribed}
+- Actual: ${actual}
+- Compliance: ${yesterdayScore.completionScore ?? 'N/A'}%
 - Feedback: ${yesterdayScore.feedback?.label || 'N/A'}`);
   }
 
@@ -411,14 +836,114 @@ When the athlete is struggling, encourage them but also offer to adjust the work
   if (workoutHistory && workoutHistory.length > 0) {
     const recent = workoutHistory.slice(-7);
     const historyLines = recent.map((w) => {
-      if (w.startDate) {
-        return `${w.discipline}: ${w.durationMinutes || w.duration}min (${new Date(w.startDate).toLocaleDateString()})`;
+      const parts = [w.discipline];
+      parts.push(`${w.durationMinutes || w.duration}min`);
+      if (w.avgHeartRate) parts.push(`avg ${w.avgHeartRate}bpm`);
+      if (w.effortScore) parts.push(`effort ${w.effortScore}/10`);
+      if (w.avgPace) {
+        const mins = Math.floor(w.avgPace);
+        const secs = Math.round((w.avgPace - mins) * 60);
+        parts.push(`pace ${mins}:${secs.toString().padStart(2, '0')}/km`);
       }
-      return `${w.discipline}: ${w.title} (${w.completedSets}/${w.totalSets} sets)`;
+      if (w.startDate) parts.push(`(${new Date(w.startDate).toLocaleDateString()})`);
+      return parts.join(', ');
     });
     sections.push(
       `RECENT WORKOUT HISTORY (last ${recent.length} sessions):\n${historyLines.join('\n')}`
     );
+  }
+
+  // Training trends
+  if (context.trends) {
+    const summary = generateTrendSummary(context.trends.health, context.trends.workout);
+    sections.push(`TRAINING TRENDS:\n${summary}`);
+  }
+
+  // Athlete insights from recent conversations
+  const insights = athleteProfile?.athleteInsights;
+  if (insights) {
+    const insightParts = [
+      `ATHLETE INSIGHTS (from recent conversations):\n- Mood: ${insights.recentMood}`,
+    ];
+    if (insights.painPoints?.length > 0) {
+      insightParts.push(`- Pain points: ${insights.painPoints.join(', ')}`);
+    }
+    if (insights.preferredIntensity) {
+      insightParts.push(`- Preferred intensity: ${insights.preferredIntensity}`);
+    }
+    if (insights.lastFatigueReport) {
+      const daysAgo = Math.round(
+        (Date.now() - new Date(insights.lastFatigueReport).getTime()) / 86400000
+      );
+      insightParts.push(`- Last fatigue report: ${daysAgo} day(s) ago`);
+    }
+    if (insights.conversationThemes?.length > 0) {
+      insightParts.push(`- Recent topics: ${insights.conversationThemes.join(', ')}`);
+    }
+    // Load adjustment fields
+    if (insights.loadAdjustment && insights.loadAdjustmentExpiry) {
+      const expiry = new Date(insights.loadAdjustmentExpiry);
+      if (expiry > new Date()) {
+        insightParts.push(
+          `- Active load adjustment: ${insights.loadAdjustment} (expires ${expiry.toLocaleDateString()})`
+        );
+      }
+    }
+    if (insights.requestedRestDay) {
+      const restDate = new Date(insights.requestedRestDay);
+      if (restDate >= new Date(new Date().setHours(0, 0, 0, 0))) {
+        insightParts.push(
+          `- Requested rest day: ${restDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
+        );
+      }
+    }
+    if (insights.requestedDisciplineFocus) {
+      insightParts.push(`- Requested discipline focus: ${insights.requestedDisciplineFocus}`);
+    }
+    sections.push(insightParts.join('\n'));
+  }
+
+  // Expert coaching knowledge for evidence-based advice
+  if (healthData) {
+    sections.push(`COACHING KNOWLEDGE — apply these principles when advising the athlete:
+
+HEART RATE ZONES (based on max HR):
+- Zone 1 Recovery: <65% max HR — warmup, cooldown, active recovery only
+- Zone 2 Aerobic: 65-75% max HR — 80% of all training volume should be here
+- Zone 3 Tempo: 76-82% max HR — comfortably hard; max 1 session/week; avoid in BASE phase
+- Zone 4 Threshold: 83-89% max HR — only prescribe when readiness > 70
+- Zone 5 VO2Max: ≥90% max HR — short intervals only in BUILD/PEAK phase
+
+HRV (RMSSD) DECISION RULES — use athlete's current HRV vs their typical baseline:
+- ≥10% above baseline: athlete is well-recovered; approve or upgrade intensity
+- Within ±10% of baseline: execute plan as scheduled
+- 5-10% below baseline: reduce intensity by one zone; keep duration
+- 10-15% below baseline: replace hard session with Zone 1-2; reduce duration 20%
+- >15% below baseline AND resting HR elevated: rest day or ≤30 min easy only
+- HRV declining 3+ consecutive days: enter light week — 50% volume, Zone 1-2 only
+
+RESTING HR RULES (elevation above athlete's baseline):
+- +3-5 bpm: caution; approve moderate only; skip high intensity
+- +5-10 bpm: reduce volume 20-30%; skip all intensity work
+- +10+ bpm: force rest day
+
+PERIODIZATION PRINCIPLES:
+- BASE phase: 80% Zone 2, technique focus, volume build ≤8% per week
+- BUILD phase: 70% Zone 2 + threshold and VO2max intervals; brick workouts begin
+- PEAK phase: race-pace simulation, longest efforts of cycle, 1 brick/week
+- TAPER phase: volume ↓40-60%, maintain intensity, 2 quality sessions/week
+- RACE_WEEK: ≤30% normal volume, short openers only, rest is priority
+
+RACE PROXIMITY RULES:
+- 14-21 days out: begin taper; target TSB climbing toward race day
+- 7 days out: race week protocol — short easy openers, no new hard efforts
+- 2-3 days out: rest or very light shake-out only
+
+ADAPTIVE LOAD PRINCIPLES:
+- Never increase volume AND intensity in the same week — choose one
+- Every 3-4 build weeks: schedule 1 deload week at 30-40% reduced volume
+- Injury reported: avoid loading that body part for at least 3 days
+- 80/20 rule: 80% of sessions easy (Zone 1-2), 20% hard (Zone 3-5)`);
   }
 
   if (conversationSummary) {
@@ -426,7 +951,7 @@ When the athlete is struggling, encourage them but also offer to adjust the work
   }
 
   sections.push(
-    "Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant. Push the athlete to stay consistent and follow their training plan."
+    "Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant. Push the athlete to stay consistent and follow their training plan. When you reference completion percentages or workout data, only use data from Apple Health — never fabricate statistics."
   );
 
   return sections.join('\n\n');
@@ -440,8 +965,8 @@ export async function generateProactiveGreeting(context) {
   const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
 
   const systemPrompt = `You are an elite endurance coach. Generate a brief, motivating morning message for your athlete.
-Include: yesterday's performance feedback, today's workout preview, race countdown encouragement.
-Keep it under 100 words. Be warm, specific, and push them to follow the plan.`;
+Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
+Keep it under 100 words. Be warm, specific, and push them to follow the plan. NEVER fabricate statistics or percentages — only reference data provided below.`;
 
   const parts = [];
   if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
@@ -541,6 +1066,72 @@ export function classifyMessage(message) {
         'my race is on',
         'race is in',
         'racing on',
+      ],
+    },
+    {
+      key: 'load_adjustment',
+      keywords: [
+        'take it easy',
+        'easier this week',
+        'reduce load',
+        'reduce my training',
+        'less training',
+        'back off',
+        'dial it back',
+        'lighter week',
+        'cut back',
+        'ease up',
+        'take tomorrow off',
+        'day off tomorrow',
+        'rest tomorrow',
+        'skip tomorrow',
+        'tomorrow off',
+        'need a rest day',
+        'give me tomorrow off',
+        'push harder',
+        'more volume',
+        'increase load',
+        'step it up',
+        'push me harder',
+        'focus on swim',
+        'focus on bike',
+        'focus on run',
+        'more swimming',
+        'more cycling',
+        'more running',
+      ],
+    },
+    {
+      key: 'schedule_preference',
+      keywords: [
+        'long sessions on',
+        'long session on',
+        'long runs on',
+        'long ride on',
+        'train on weekends',
+        'train on the weekend',
+        'weekends for long',
+        'prefer weekends',
+        'prefer saturday',
+        'prefer sunday',
+        'rest on friday',
+        'rest on monday',
+        'day off on',
+        'no training on',
+        'move my long',
+        'long workouts on',
+        'schedule my long',
+        'want to do long',
+        'do my long',
+        'move rest day',
+        'move my rest',
+        'change rest day',
+        'change my rest',
+        'rest days on',
+        'rest day to',
+        'avoid training on',
+        'free on weekdays',
+        'only train on',
       ],
     },
     {
@@ -746,6 +1337,8 @@ export function generateFallbackResponse(category, _userMessage, context) {
   const phaseName = phaseLabels[phase] || 'base building';
 
   switch (category) {
+    case 'schedule_preference':
+      return "I'd like to adjust your schedule but couldn't process the change. Try something like 'I want long sessions on weekends' or 'Move my rest day to Friday'.";
     case 'profile_change':
       return "I'd like to update your profile but I couldn't process the change. Try being specific, like 'Change my race day to September 28'.";
     case 'completed_workout':

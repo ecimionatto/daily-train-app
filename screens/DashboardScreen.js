@@ -21,6 +21,9 @@ export default function DashboardScreen({ navigation }) {
     swapTodayWorkout,
     completedWorkouts,
     loadCompletedWorkouts,
+    todayWorkoutStatus,
+    todayMatchedWorkout,
+    trends,
   } = useApp();
 
   const { messages } = useChat();
@@ -50,6 +53,7 @@ export default function DashboardScreen({ navigation }) {
         phase,
         daysToRace,
         completedWorkouts,
+        trends,
       };
       const workout = await generateWorkoutLocally(params);
       await saveTodayWorkout(workout);
@@ -172,6 +176,12 @@ export default function DashboardScreen({ navigation }) {
       {yesterdayScore && (
         <View style={styles.yesterdayCard}>
           <Text style={styles.sectionTitle}>{"YESTERDAY'S SESSION"}</Text>
+          {yesterdayScore.prescribedDiscipline && (
+            <Text style={styles.prescribedText}>
+              Prescribed: {yesterdayScore.prescribedDiscipline?.charAt(0).toUpperCase()}
+              {yesterdayScore.prescribedDiscipline?.slice(1)} {yesterdayScore.prescribedDuration}min
+            </Text>
+          )}
           <View style={styles.yesterdayRow}>
             <Text
               style={[
@@ -198,7 +208,11 @@ export default function DashboardScreen({ navigation }) {
 
       {/* Today's Workout - Full Details */}
       <View style={styles.workoutCard}>
-        <Text style={styles.sectionTitle}>{"TODAY'S SESSION"}</Text>
+        <View style={styles.todayHeader}>
+          <Text style={styles.sectionTitle}>{"TODAY'S SESSION"}</Text>
+          {todayWorkoutStatus === 'completed' && <Text style={styles.completedBadge}>✓ DONE</Text>}
+          {todayWorkoutStatus === 'partial' && <Text style={styles.partialBadge}>IN PROGRESS</Text>}
+        </View>
         {loading ? (
           <Text style={styles.loadingText}>Generating your workout...</Text>
         ) : todayWorkout ? (
@@ -211,14 +225,33 @@ export default function DashboardScreen({ navigation }) {
             </View>
             <Text style={styles.workoutDescription}>{todayWorkout.summary}</Text>
 
+            {/* Show actual stats when completed */}
+            {todayMatchedWorkout && todayWorkoutStatus !== 'pending' && (
+              <View style={styles.actualStatsRow}>
+                <Text style={styles.actualStatsLabel}>Actual:</Text>
+                <Text style={styles.actualStatsValue}>
+                  {todayMatchedWorkout.durationMinutes}min
+                  {todayMatchedWorkout.calories ? ` · ${todayMatchedWorkout.calories} cal` : ''}
+                  {todayMatchedWorkout.avgHeartRate
+                    ? ` · ${todayMatchedWorkout.avgHeartRate} bpm`
+                    : ''}
+                </Text>
+              </View>
+            )}
+
             {/* Inline sections/sets */}
             {renderWorkoutSections(todayWorkout)}
 
             <TouchableOpacity
-              style={styles.startButton}
+              style={[
+                styles.startButton,
+                todayWorkoutStatus === 'completed' && styles.completedButton,
+              ]}
               onPress={() => navigation.navigate('Workout')}
             >
-              <Text style={styles.startButtonText}>VIEW WORKOUT</Text>
+              <Text style={styles.startButtonText}>
+                {todayWorkoutStatus === 'completed' ? '✓ COMPLETED' : 'VIEW WORKOUT'}
+              </Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -285,7 +318,10 @@ export default function DashboardScreen({ navigation }) {
                     {w.discipline?.slice(1)}
                   </Text>
                   <Text style={styles.recentActivityMeta}>
-                    {w.durationMinutes}min ·{' '}
+                    {w.durationMinutes}min
+                    {w.avgHeartRate ? ` · ${w.avgHeartRate} bpm` : ''}
+                    {w.avgPace ? ` · ${formatPace(w.avgPace)}` : ''}
+                    {' · '}
                     {new Date(w.startDate).toLocaleDateString('en-US', {
                       weekday: 'short',
                       month: 'short',
@@ -367,10 +403,19 @@ function getDisciplineColor(discipline) {
     swim: '#47b2ff',
     bike: '#e8ff47',
     run: '#47ffb2',
+    walk: '#8bc34a',
+    hike: '#8bc34a',
     strength: '#ff6b6b',
     rest: '#333',
   };
   return colors[discipline] || '#888';
+}
+
+function formatPace(avgPaceMinPerKm) {
+  if (!avgPaceMinPerKm || !isFinite(avgPaceMinPerKm)) return '';
+  const mins = Math.floor(avgPaceMinPerKm);
+  const secs = Math.round((avgPaceMinPerKm - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')} /km`;
 }
 
 const styles = StyleSheet.create({
@@ -765,5 +810,53 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 12,
     marginTop: 2,
+  },
+  prescribedText: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  todayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  completedBadge: {
+    color: '#47ffb2',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  partialBadge: {
+    color: '#e8ff47',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  completedButton: {
+    backgroundColor: '#1a4a2e',
+    borderColor: '#47ffb2',
+    borderWidth: 1,
+  },
+  actualStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#0d2b1a',
+    borderRadius: 8,
+  },
+  actualStatsLabel: {
+    color: '#47ffb2',
+    fontSize: 12,
+    fontWeight: '700',
+    marginRight: 8,
+  },
+  actualStatsValue: {
+    color: '#ccc',
+    fontSize: 12,
   },
 });

@@ -14,6 +14,7 @@ import WorkoutScreen from './screens/WorkoutScreen';
 import RecoveryScreen from './screens/RecoveryScreen';
 import WeeklyScreen from './screens/WeeklyScreen';
 import ChatScreen from './screens/ChatScreen';
+import CalendarScreen from './screens/CalendarScreen';
 import TabBar from './components/TabBar';
 import { ChatProvider } from './context/ChatContext';
 
@@ -40,6 +41,7 @@ function MainTabs() {
       <Tab.Screen name="Recovery" component={RecoveryScreen} />
       <Tab.Screen name="Weekly" component={WeeklyScreen} />
       <Tab.Screen name="Coach" component={ChatScreen} />
+      <Tab.Screen name="Calendar" component={CalendarScreen} />
     </Tab.Navigator>
   );
 }

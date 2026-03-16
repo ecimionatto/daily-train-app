@@ -11,7 +11,6 @@ import {
   mockHealthData,
   mockWorkout,
   mockAlternativeWorkout,
-  mockWorkoutHistoryWithYesterday,
   renderWithProviders,
 } from './test-utils';
 
@@ -149,11 +148,25 @@ describe('DashboardScreen', () => {
     });
   });
 
-  it('shows yesterday score when workout history exists', async () => {
+  it('shows yesterday score when Apple Health has completed workouts', async () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(7, 0, 0, 0);
+    const yesterdayWorkout = {
+      id: 'hk_yesterday',
+      discipline: 'run',
+      startDate: yesterday.toISOString(),
+      endDate: new Date(yesterday.getTime() + 45 * 60000).toISOString(),
+      durationMinutes: 45,
+      calories: 400,
+      distanceMeters: 7000,
+      source: 'Apple Watch',
+    };
+    fetchCompletedWorkouts.mockResolvedValue([yesterdayWorkout]);
+
     await seedAsyncStorage({
       user: mockUser,
       profile: mockProfile,
-      workoutHistory: mockWorkoutHistoryWithYesterday,
     });
 
     const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
