@@ -21,9 +21,10 @@ export function analyzeHealthTrends(healthHistory) {
   const sleepTrend = computeMetricTrend(recent7, older7, 'sleepHours', 'higher_better');
 
   const alerts = [];
-  if (hrvTrend.trend === 'declining') alerts.push('HRV declining — possible fatigue accumulation');
-  if (rhrTrend.trend === 'declining') alerts.push('Resting HR elevated — recovery may be impaired');
-  if (sleepTrend.trend === 'declining') alerts.push('Sleep trending down — prioritize rest');
+  if (hrvTrend?.trend === 'declining') alerts.push('HRV declining — possible fatigue accumulation');
+  if (rhrTrend?.trend === 'declining')
+    alerts.push('Resting HR elevated — recovery may be impaired');
+  if (sleepTrend?.trend === 'declining') alerts.push('Sleep trending down — prioritize rest');
 
   const trendScores = [hrvTrend, rhrTrend, sleepTrend].filter((t) => t !== null);
   const decliningCount = trendScores.filter((t) => t.trend === 'declining').length;
