@@ -3,10 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getCoachResponse,
   buildConversationSummary,
+  buildModelNotReadyMessage,
   generateProactiveGreeting,
   generateWeeklyReview,
   extractAthleteInsights,
 } from '../services/chatService';
+import { ModelNotReadyError } from '../services/localModel';
 import { useApp } from './AppContext';
 
 const ChatContext = createContext();
@@ -169,8 +171,12 @@ export function ChatProvider({ children }) {
       await AsyncStorage.setItem('lastGreetingDate', today);
       setHasGreetedToday(true);
     } catch (e) {
-      console.warn('Failed to send proactive greeting:', e);
-      setHasGreetedToday(true);
+      if (e instanceof ModelNotReadyError) {
+        // Model still loading — don't mark as greeted so it retries when ready
+      } else {
+        console.warn('Failed to send proactive greeting:', e);
+        setHasGreetedToday(true);
+      }
     }
   }
 
@@ -292,12 +298,15 @@ export function ChatProvider({ children }) {
           }
         }
       } catch (e) {
-        console.warn('Failed to get coach response:', e);
+        const errorContent =
+          e instanceof ModelNotReadyError
+            ? buildModelNotReadyMessage()
+            : "I'm having trouble processing your question right now. Please try again in a moment.";
+        console.warn('Coach response error:', e.message || e);
         const errorMessage = {
           id: `msg_${Date.now()}_error`,
           role: 'coach',
-          content:
-            "I'm having trouble processing your question right now. Please try again in a moment.",
+          content: errorContent,
           timestamp: new Date().toISOString(),
         };
         const finalMessages = [...updatedMessages, errorMessage];

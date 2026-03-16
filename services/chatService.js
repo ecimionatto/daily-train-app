@@ -1,4 +1,4 @@
-import { runInference } from './localModel';
+import { runInference, getModelLoadingProgress } from './localModel';
 import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
 import { generateTrendSummary } from './trendAnalysis';
@@ -432,15 +432,23 @@ export async function getCoachResponse(userMessage, context, conversationHistory
 
   const systemPrompt = buildCoachSystemPrompt(context);
   const summary = buildConversationSummary(conversationHistory);
-
   const userPrompt = summary ? `${summary}\n\nAthlete: ${userMessage}` : `Athlete: ${userMessage}`;
 
   const modelResponse = await runInference(systemPrompt, userPrompt);
-  if (modelResponse) {
-    return modelResponse.trim();
-  }
+  return modelResponse
+    ? modelResponse.trim()
+    : generateFallbackResponse(category, userMessage, context);
+}
 
-  return generateFallbackResponse(category, userMessage, context);
+/**
+ * Build a user-facing message when the AI model is not ready yet.
+ */
+export function buildModelNotReadyMessage() {
+  const progress = getModelLoadingProgress();
+  if (progress > 0 && progress < 100) {
+    return `Your AI coach is still loading (${progress}% ready). Please wait a moment and try again.`;
+  }
+  return `Your AI coach isn't ready yet. Make sure the model has finished downloading and loading on the Dashboard, then try again.`;
 }
 
 /**
@@ -508,8 +516,15 @@ async function handleSchedulePreference(userMessage, context) {
   const { athleteProfile, onProfileUpdate } = context;
   const days = parseDaysFromMessage(userMessage);
 
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
   if (days.length === 0) {
-    return "I'd like to adjust your schedule, but I couldn't determine which days you mean. Try something like 'I want long sessions on weekends' or 'Move my rest day to Friday'.";
+    // Let the AI figure out the intent and respond helpfully
+    const systemPrompt = buildCoachSystemPrompt(context);
+    const prompt = `${userMessage}\n\n[The athlete is trying to change their schedule preference but the specific days are unclear. Ask them to clarify which days, and give examples based on their current plan. Keep it under 80 words.]`;
+    const aiResponse = await runInference(systemPrompt, prompt);
+    if (aiResponse) return aiResponse.trim();
+    return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Friday'.`;
   }
 
   const intent = parseScheduleIntent(userMessage);
@@ -524,16 +539,24 @@ async function handleSchedulePreference(userMessage, context) {
 
   await onProfileUpdate(updated);
 
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const dayList = days.map((d) => dayNames[d]).join(' and ');
+  const changeDesc = {
+    longDays: `long sessions scheduled on ${dayList}`,
+    restDays: `${dayList} set as rest days`,
+    avoidDays: `${dayList} marked as no-training days`,
+  }[intent];
 
-  const responses = {
-    longDays: `Done! I've updated your plan to schedule long sessions on ${dayList}. Your calendar and daily workouts will reflect this change. The bike and long endurance sessions will now be placed on ${dayList}.`,
-    restDays: `Done! I've set ${dayList} as rest days in your plan. Your weekly schedule will adjust to keep training balanced on the remaining days.`,
-    avoidDays: `Got it! I've marked ${dayList} as days to avoid training. I'll redistribute your workouts across the other days of the week.`,
+  const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
+  const prompt = `I just updated the athlete's schedule: ${changeDesc}. Confirm this warmly, briefly explain how their weekly plan will adapt, and keep it under 80 words.`;
+  const aiResponse = await runInference(systemPrompt, prompt);
+  if (aiResponse) return aiResponse.trim();
+
+  const fallbacks = {
+    longDays: `Done! Long sessions are now on ${dayList}. Your plan will place bike and endurance sessions there going forward.`,
+    restDays: `Got it! ${dayList} ${days.length > 1 ? 'are' : 'is'} now rest days. Training will be balanced across the remaining days.`,
+    avoidDays: `Noted! I'll keep ${dayList} training-free and redistribute workouts to your other days.`,
   };
-
-  return responses[intent];
+  return fallbacks[intent];
 }
 
 /**
@@ -601,7 +624,6 @@ async function handleLoadAdjustment(userMessage, context) {
 
   await onProfileUpdate(updatedProfile);
 
-  const name = athleteProfile.name ? `${athleteProfile.name}, ` : '';
   const expiryStr =
     newInsights.loadAdjustmentExpiry && isReduceRequest
       ? ` through ${new Date(newInsights.loadAdjustmentExpiry).toLocaleDateString('en-US', {
@@ -611,7 +633,14 @@ async function handleLoadAdjustment(userMessage, context) {
         })}`
       : '';
 
-  return `Got it, ${name}I've ${confirmationParts.join(' and ')}${expiryStr}. Your workouts will adapt automatically — listen to your body and let me know if you need further adjustments.`;
+  const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updatedProfile });
+  const changeDesc = `${confirmationParts.join(' and ')}${expiryStr}`;
+  const prompt = `I just updated the athlete's training plan: ${changeDesc}. Confirm this empathetically, explain briefly how their upcoming workouts will change, and keep it under 100 words.`;
+  const aiResponse = await runInference(systemPrompt, prompt);
+  if (aiResponse) return aiResponse.trim();
+
+  const name = athleteProfile.name ? `${athleteProfile.name}, ` : '';
+  return `Got it, ${name}I've ${changeDesc}. Your workouts will adapt automatically — listen to your body and let me know if you need further adjustments.`;
 }
 
 /**
@@ -644,15 +673,21 @@ async function handleWorkoutSwap(userMessage, context) {
 }
 
 /**
- * Handle a profile change request (e.g. race date update).
+ * Handle a profile change request (race date, race type, distance, new race).
  */
 async function handleProfileChange(userMessage, context) {
   const { athleteProfile, onProfileUpdate } = context;
+  const lower = userMessage.toLowerCase();
+
   const dateMatch = parseRaceDateFromMessage(userMessage);
+  const distanceMatch = parseRaceDistanceFromMessage(lower);
+  const name = athleteProfile?.name || 'Athlete';
+
+  const updates = {};
+  const confirmParts = [];
 
   if (dateMatch) {
-    const updated = { ...athleteProfile, raceDate: dateMatch.toISOString() };
-    await onProfileUpdate(updated);
+    updates.raceDate = dateMatch.toISOString();
     const formatted = dateMatch.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -660,10 +695,76 @@ async function handleProfileChange(userMessage, context) {
       day: 'numeric',
     });
     const daysOut = Math.ceil((dateMatch - new Date()) / (24 * 60 * 60 * 1000));
-    return `Done! I've updated your race date to ${formatted}. That's ${daysOut} days from now. Your training phases and workout plan will adjust automatically. Let's make every session count!`;
+    confirmParts.push(`race date set to ${formatted} (${daysOut} days away)`);
   }
 
-  return "I'd like to update your race date but I couldn't parse the date from your message. Try something like 'Change my race day to September 28' or 'My race is on March 15, 2027'.";
+  if (distanceMatch) {
+    updates.distance = distanceMatch.distance;
+    updates.raceType = distanceMatch.raceType;
+    confirmParts.push(`race updated to ${distanceMatch.label}`);
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const updated = { ...athleteProfile, ...updates };
+    await onProfileUpdate(updated);
+    const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
+    const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training phases and upcoming workouts will adapt, and encourage them. Keep it under 100 words.`;
+    const aiResponse = await runInference(systemPrompt, prompt);
+    if (aiResponse) return aiResponse.trim();
+    return `Got it, ${name}! I've updated your ${confirmParts.join(' and ')}. Your training phases and workouts will adjust automatically — every session from here is tailored to your new target!`;
+  }
+
+  // No parseable update — pass to AI with explicit instruction to help
+  const systemPrompt = buildCoachSystemPrompt(context);
+  const prompt = `${userMessage}\n\n[The athlete wants to change their race or training goal. Help them update it. If they need to provide a date, ask for it specifically. DO NOT say the plan is finalized or cannot change.]`;
+  const aiResponse = await runInference(systemPrompt, prompt);
+  if (aiResponse) return aiResponse.trim();
+  return `I want to update your plan, ${name}! Could you tell me the race date? For example: "My race is on September 28, 2026".`;
+}
+
+const DISTANCE_ALIASES = [
+  {
+    patterns: ['sprint', 'sprint triathlon'],
+    distance: 'Sprint',
+    raceType: 'triathlon',
+    label: 'Sprint Triathlon',
+  },
+  {
+    patterns: ['olympic', 'olympic triathlon', 'oly'],
+    distance: 'Olympic',
+    raceType: 'triathlon',
+    label: 'Olympic Triathlon',
+  },
+  {
+    patterns: ['half ironman', '70.3', 'half distance', 'half tri'],
+    distance: '70.3',
+    raceType: 'triathlon',
+    label: 'Half Ironman (70.3)',
+  },
+  {
+    patterns: ['ironman', 'full ironman', 'full distance', '140.6'],
+    distance: 'Full',
+    raceType: 'triathlon',
+    label: 'Full Ironman (140.6)',
+  },
+  { patterns: ['marathon'], distance: 'Marathon', raceType: 'running', label: 'Marathon' },
+  {
+    patterns: ['half marathon'],
+    distance: 'Half Marathon',
+    raceType: 'running',
+    label: 'Half Marathon',
+  },
+  { patterns: ['5k', '5km'], distance: '5K', raceType: 'running', label: '5K' },
+  { patterns: ['10k', '10km'], distance: '10K', raceType: 'running', label: '10K' },
+];
+
+function parseRaceDistanceFromMessage(lower) {
+  for (const alias of DISTANCE_ALIASES) {
+    if (alias.patterns.some((p) => lower.includes(p))) {
+      return alias;
+    }
+  }
+  return null;
 }
 
 /**
@@ -951,7 +1052,9 @@ ADAPTIVE LOAD PRINCIPLES:
   }
 
   sections.push(
-    "Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant. Push the athlete to stay consistent and follow their training plan. When you reference completion percentages or workout data, only use data from Apple Health — never fabricate statistics."
+    `Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant.
+PLAN ADAPTATION: The training plan is NOT fixed — it must adapt to the athlete's life, goals, and fitness. When the athlete reports a new race, changes a race date, wants to add a race, changes their goal distance, or requests any plan modification, CONFIRM the change and explain how their training will adapt. Never say the plan is finalized or cannot be changed.
+When you reference completion percentages or workout data, only use data from Apple Health — never fabricate statistics.`
   );
 
   return sections.join('\n\n');
@@ -1066,6 +1169,46 @@ export function classifyMessage(message) {
         'my race is on',
         'race is in',
         'racing on',
+        // New race / adding a race
+        'found a race',
+        'add a race',
+        'new race',
+        'signed up for',
+        'signing up for',
+        'registered for',
+        'i want to do a',
+        'i want to race',
+        'i want to compete',
+        'entered a race',
+        'targeting a race',
+        'i found a',
+        'just signed',
+        // Distance / goal changes
+        'change my distance',
+        'switch to a',
+        'switching to',
+        'doing a half',
+        'doing a full',
+        'doing an ironman',
+        "i'm doing a",
+        'training for a marathon',
+        'training for a half',
+        'train for a marathon',
+        'train for a sprint',
+        'train for a 70.3',
+        'train for an ironman',
+        '70.3',
+        'change my goal distance',
+        'new goal',
+        'different race',
+        'different distance',
+        // Natural date phrases
+        'race in',
+        'race on',
+        'compete in',
+        'compete on',
+        'event in',
+        'event on',
       ],
     },
     {
@@ -1338,9 +1481,9 @@ export function generateFallbackResponse(category, _userMessage, context) {
 
   switch (category) {
     case 'schedule_preference':
-      return "I'd like to adjust your schedule but couldn't process the change. Try something like 'I want long sessions on weekends' or 'Move my rest day to Friday'.";
+      return `Let me know which days work best for you — for example, 'I want long sessions on weekends' or 'Move my rest day to Friday', and I'll update your plan right away.`;
     case 'profile_change':
-      return "I'd like to update your profile but I couldn't process the change. Try being specific, like 'Change my race day to September 28'.";
+      return `Tell me your new race date or goal and I'll update your plan. For example: 'My race is on September 28, 2026' or 'I signed up for a half ironman in June'.`;
     case 'completed_workout':
       return buildCompletedWorkoutResponse(workoutHistory, yesterdayScore);
     case 'workout_inquiry':

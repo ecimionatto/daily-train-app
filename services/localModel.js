@@ -142,29 +142,37 @@ export function isModelReady() {
 }
 
 /**
+ * Thrown by runInference when the local model is not yet loaded.
+ * Callers should surface this to the user rather than falling back silently.
+ */
+export class ModelNotReadyError extends Error {
+  constructor() {
+    super('Local AI model is not ready. Please wait for it to finish loading.');
+    this.name = 'ModelNotReadyError';
+  }
+}
+
+/**
  * Run inference using the local llama.rn model.
- * Returns the generated text or null if model isn't available.
+ * Throws ModelNotReadyError if the model is not loaded.
  */
 export async function runInference(systemPrompt, userPrompt) {
-  if (!modelLoaded || !llamaContext) return null;
-
-  try {
-    const result = await llamaContext.completion({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      n_predict: 512,
-      stop: STOP_WORDS,
-      temperature: 0.7,
-      top_p: 0.9,
-      top_k: 40,
-    });
-    return result.text || null;
-  } catch (e) {
-    console.warn('Local model inference failed:', e);
-    return null;
+  if (!modelLoaded || !llamaContext) {
+    throw new ModelNotReadyError();
   }
+
+  const result = await llamaContext.completion({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    n_predict: 512,
+    stop: STOP_WORDS,
+    temperature: 0.7,
+    top_p: 0.9,
+    top_k: 40,
+  });
+  return result.text || null;
 }
 
 /**
@@ -217,21 +225,22 @@ Respond ONLY with valid JSON matching this structure:
 Status: phase=${phase}, days to race=${daysToRace}, readiness=${readinessScore}/100, RHR=${healthData?.restingHR || 'N/A'}bpm, HRV=${healthData?.hrv || 'N/A'}ms, sleep=${healthData?.sleepHours?.toFixed(1) || 'N/A'}h.
 Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' })}.${targetDiscipline ? `\nTarget discipline: ${targetDiscipline}.` : ''}${insightsContext}${trendsContext}${recentActivity ? `\nRecent Apple Health activity:\n${recentActivity}` : ''}`;
 
-  // Try local model first
-  const modelResponse = await runInference(systemPrompt, userPrompt);
-  if (modelResponse) {
-    try {
+  // Try local model first; fall back to rule-based if model not ready
+  try {
+    const modelResponse = await runInference(systemPrompt, userPrompt);
+    if (modelResponse) {
       const jsonStr = modelResponse
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
       return JSON.parse(jsonStr);
-    } catch {
-      console.warn('Failed to parse local model output, using fallback');
     }
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) throw e;
+    // Model not ready — fall through to rule-based
   }
 
-  // Rule-based fallback (no model needed)
+  // Rule-based fallback (works without model)
   return generateRuleBasedWorkout({
     profile,
     healthData,
@@ -257,10 +266,15 @@ export async function generateWeeklySummaryLocally({ profile, weekHistory, phase
   const systemPrompt = `You are an ${coachType} coach. Give a 2-3 paragraph weekly debrief. Plain text only.`;
   const userPrompt = `Athlete: ${profile.level || 'Intermediate'}, phase: ${phase}. Workouts: ${workoutList || 'none'}, total sessions: ${weekHistory.length}.`;
 
-  const modelResponse = await runInference(systemPrompt, userPrompt);
+  let modelResponse = null;
+  try {
+    modelResponse = await runInference(systemPrompt, userPrompt);
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) throw e;
+  }
   if (modelResponse) return modelResponse;
 
-  // Simple fallback summary
+  // Rule-based summary
   const totalMin = weekHistory.reduce((sum, w) => sum + (w.duration || 0), 0);
   const disciplines = {};
   weekHistory.forEach((w) => {
@@ -324,17 +338,17 @@ Respond ONLY with valid JSON matching this structure:
 
   const userPrompt = buildWorkoutUserPrompt(profile, healthData, readinessScore, phase, daysToRace);
 
-  const modelResponse = await runInference(systemPrompt, userPrompt);
-  if (modelResponse) {
-    try {
+  try {
+    const modelResponse = await runInference(systemPrompt, userPrompt);
+    if (modelResponse) {
       const jsonStr = modelResponse
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
       return JSON.parse(jsonStr);
-    } catch {
-      console.warn('Failed to parse alternative workout, using fallback');
     }
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) throw e;
   }
 
   const baseDuration = getBaseDuration(phase, profile.weeklyHours);
@@ -384,17 +398,17 @@ Respond ONLY with valid JSON matching this structure:
 
   const userPrompt = buildWorkoutUserPrompt(profile, healthData, readinessScore, phase, daysToRace);
 
-  const modelResponse = await runInference(systemPrompt, userPrompt);
-  if (modelResponse) {
-    try {
+  try {
+    const modelResponse = await runInference(systemPrompt, userPrompt);
+    if (modelResponse) {
       const jsonStr = modelResponse
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
       return JSON.parse(jsonStr);
-    } catch {
-      console.warn('Failed to parse replacement workout, using fallback');
     }
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) throw e;
   }
 
   return generateRuleBasedReplacement({ profile, readinessScore, phase, constraints });
@@ -490,7 +504,12 @@ export async function generateWeeklyPlanAdjustment({
   const userPrompt = `Athlete: ${profile.level || 'Intermediate'}, ${profile.raceType || 'triathlon'} - ${profile.distance}, phase: ${phase}, ${daysToRace ?? 'N/A'} days to race, compliance: ${complianceScore ?? 'N/A'}%.
 This week: ${workoutList || 'no workouts completed'}, sessions: ${(weekHistory || []).length}.`;
 
-  const modelResponse = await runInference(systemPrompt, userPrompt);
+  let modelResponse = null;
+  try {
+    modelResponse = await runInference(systemPrompt, userPrompt);
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) throw e;
+  }
   if (modelResponse) return modelResponse;
 
   return generateFallbackWeeklyAdjustment(weekHistory, phase, complianceScore);

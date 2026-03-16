@@ -2,12 +2,14 @@ import {
   classifyMessage,
   generateFallbackResponse,
   buildCoachSystemPrompt,
+  buildModelNotReadyMessage,
   isOffTopic,
   getOffTopicResponse,
   buildConversationSummary,
   generateFallbackGreeting,
   extractAthleteInsights,
 } from '../services/chatService';
+import { ModelNotReadyError } from '../services/localModel';
 
 describe('classifyMessage', () => {
   it('classifies workout swap requests', () => {
@@ -677,5 +679,54 @@ describe('buildCoachSystemPrompt - coach name fix', () => {
     const context = { athleteProfile: { raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).not.toContain('COACHING KNOWLEDGE');
+  });
+});
+
+describe('classifyMessage - profile_change extended keywords', () => {
+  it('classifies new race phrases as profile_change', () => {
+    expect(classifyMessage('I found a race in June')).toBe('profile_change');
+    expect(classifyMessage('I signed up for a triathlon')).toBe('profile_change');
+    expect(classifyMessage('I want to do a half ironman')).toBe('profile_change');
+    expect(classifyMessage('I just registered for a race')).toBe('profile_change');
+  });
+
+  it('classifies distance change phrases as profile_change', () => {
+    expect(classifyMessage('I want to train for a marathon now')).toBe('profile_change');
+    expect(classifyMessage("I'm doing a 70.3 in August")).toBe('profile_change');
+    expect(classifyMessage('switching to a sprint triathlon')).toBe('profile_change');
+  });
+});
+
+describe('buildModelNotReadyMessage', () => {
+  it('returns a loading message when called', () => {
+    const msg = buildModelNotReadyMessage();
+    expect(typeof msg).toBe('string');
+    expect(msg.length).toBeGreaterThan(10);
+  });
+});
+
+describe('ModelNotReadyError', () => {
+  it('is an instance of Error', () => {
+    const err = new ModelNotReadyError();
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('ModelNotReadyError');
+    expect(err.message).toContain('not ready');
+  });
+});
+
+describe('buildCoachSystemPrompt - plan adaptation instruction', () => {
+  it('tells the coach the plan is NOT fixed and can be adapted', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('NOT fixed');
+    expect(prompt).toContain('PLAN ADAPTATION');
+  });
+
+  it('does not tell the coach to always follow the plan unchanged', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).not.toMatch(
+      /Push the athlete to stay consistent and follow their training plan/
+    );
   });
 });
