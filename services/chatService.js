@@ -847,13 +847,14 @@ export function buildConversationSummary(messages) {
     parts.push(`Key topics discussed: ${topTopics.join(', ')}`);
   }
 
-  // Include last 3 exchanges verbatim for immediate context
-  const recentMessages = messages.slice(-6);
+  // Include last 2 exchanges (4 messages) with content capped to save context space
+  const recentMessages = messages.slice(-4);
   if (recentMessages.length > 0) {
     parts.push('Recent messages:');
     recentMessages.forEach((m) => {
       const role = m.role === 'athlete' ? 'Athlete' : 'Coach';
-      parts.push(`${role}: ${m.content}`);
+      const content = m.content.length > 120 ? `${m.content.slice(0, 120)}…` : m.content;
+      parts.push(`${role}: ${content}`);
     });
   }
 
@@ -1006,45 +1007,13 @@ When the athlete is struggling, encourage them but also offer to adjust the work
 
   // Expert coaching knowledge for evidence-based advice
   if (healthData) {
-    sections.push(`COACHING KNOWLEDGE — apply these principles when advising the athlete:
-
-HEART RATE ZONES (based on max HR):
-- Zone 1 Recovery: <65% max HR — warmup, cooldown, active recovery only
-- Zone 2 Aerobic: 65-75% max HR — 80% of all training volume should be here
-- Zone 3 Tempo: 76-82% max HR — comfortably hard; max 1 session/week; avoid in BASE phase
-- Zone 4 Threshold: 83-89% max HR — only prescribe when readiness > 70
-- Zone 5 VO2Max: ≥90% max HR — short intervals only in BUILD/PEAK phase
-
-HRV (RMSSD) DECISION RULES — use athlete's current HRV vs their typical baseline:
-- ≥10% above baseline: athlete is well-recovered; approve or upgrade intensity
-- Within ±10% of baseline: execute plan as scheduled
-- 5-10% below baseline: reduce intensity by one zone; keep duration
-- 10-15% below baseline: replace hard session with Zone 1-2; reduce duration 20%
-- >15% below baseline AND resting HR elevated: rest day or ≤30 min easy only
-- HRV declining 3+ consecutive days: enter light week — 50% volume, Zone 1-2 only
-
-RESTING HR RULES (elevation above athlete's baseline):
-- +3-5 bpm: caution; approve moderate only; skip high intensity
-- +5-10 bpm: reduce volume 20-30%; skip all intensity work
-- +10+ bpm: force rest day
-
-PERIODIZATION PRINCIPLES:
-- BASE phase: 80% Zone 2, technique focus, volume build ≤8% per week
-- BUILD phase: 70% Zone 2 + threshold and VO2max intervals; brick workouts begin
-- PEAK phase: race-pace simulation, longest efforts of cycle, 1 brick/week
-- TAPER phase: volume ↓40-60%, maintain intensity, 2 quality sessions/week
-- RACE_WEEK: ≤30% normal volume, short openers only, rest is priority
-
-RACE PROXIMITY RULES:
-- 14-21 days out: begin taper; target TSB climbing toward race day
-- 7 days out: race week protocol — short easy openers, no new hard efforts
-- 2-3 days out: rest or very light shake-out only
-
-ADAPTIVE LOAD PRINCIPLES:
-- Never increase volume AND intensity in the same week — choose one
-- Every 3-4 build weeks: schedule 1 deload week at 30-40% reduced volume
-- Injury reported: avoid loading that body part for at least 3 days
-- 80/20 rule: 80% of sessions easy (Zone 1-2), 20% hard (Zone 3-5)`);
+    sections.push(`COACHING KNOWLEDGE:
+HR ZONES: Z1<65%(recovery) Z2 65-75%(aerobic, 80% of volume) Z3 76-82%(tempo,≤1/wk) Z4 83-89%(threshold,readiness>70) Z5≥90%(VO2max,BUILD/PEAK only)
+HRV vs baseline: >+10%→upgrade | ±10%→execute | -5-10%→drop 1 zone | -10-15%→easy+20%shorter | >-15%+RHR↑→rest | 3+days declining→light week
+RHR above baseline: +3-5bpm→moderate only | +5-10bpm→no intensity | +10bpm→rest
+PHASES: BASE=80%Z2+volume(≤8%/wk) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
+TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
+LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest. 80/20 rule.`);
   }
 
   if (conversationSummary) {

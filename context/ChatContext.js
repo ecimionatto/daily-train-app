@@ -8,7 +8,7 @@ import {
   generateWeeklyReview,
   extractAthleteInsights,
 } from '../services/chatService';
-import { ModelNotReadyError } from '../services/localModel';
+import { ModelNotReadyError, ContextFullError } from '../services/localModel';
 import { useApp } from './AppContext';
 
 const ChatContext = createContext();
@@ -298,10 +298,16 @@ export function ChatProvider({ children }) {
           }
         }
       } catch (e) {
-        const errorContent =
-          e instanceof ModelNotReadyError
-            ? buildModelNotReadyMessage()
-            : "I'm having trouble processing your question right now. Please try again in a moment.";
+        let errorContent;
+        if (e instanceof ModelNotReadyError) {
+          errorContent = buildModelNotReadyMessage();
+        } else if (e instanceof ContextFullError) {
+          errorContent =
+            'Your message is too long for my context window right now. Try asking a shorter question, or clear the chat history to free up space.';
+        } else {
+          errorContent =
+            "I'm having trouble processing your question right now. Please try again in a moment.";
+        }
         console.warn('Coach response error:', e.message || e);
         const errorMessage = {
           id: `msg_${Date.now()}_error`,

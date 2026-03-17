@@ -670,7 +670,7 @@ describe('buildCoachSystemPrompt - coach name fix', () => {
     };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('COACHING KNOWLEDGE');
-    expect(prompt).toContain('Zone 2');
+    expect(prompt).toContain('Z2');
     expect(prompt).toContain('HRV');
     expect(prompt).toContain('80/20');
   });

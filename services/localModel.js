@@ -102,7 +102,7 @@ export async function initLocalModel() {
     llamaContext = await initLlama(
       {
         model: modelPath,
-        n_ctx: 2048,
+        n_ctx: 4096,
         n_gpu_layers: 99,
         n_threads: 4,
         use_mlock: true,
@@ -153,26 +153,45 @@ export class ModelNotReadyError extends Error {
 }
 
 /**
+ * Thrown by runInference when the prompt exceeds the model's context window.
+ */
+export class ContextFullError extends Error {
+  constructor() {
+    super('Prompt is too long for the AI model context window.');
+    this.name = 'ContextFullError';
+  }
+}
+
+/**
  * Run inference using the local llama.rn model.
  * Throws ModelNotReadyError if the model is not loaded.
+ * Throws ContextFullError if the prompt exceeds the context window.
  */
 export async function runInference(systemPrompt, userPrompt) {
   if (!modelLoaded || !llamaContext) {
     throw new ModelNotReadyError();
   }
 
-  const result = await llamaContext.completion({
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    n_predict: 512,
-    stop: STOP_WORDS,
-    temperature: 0.7,
-    top_p: 0.9,
-    top_k: 40,
-  });
-  return result.text || null;
+  try {
+    const result = await llamaContext.completion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      n_predict: 512,
+      stop: STOP_WORDS,
+      temperature: 0.7,
+      top_p: 0.9,
+      top_k: 40,
+    });
+    return result.text || null;
+  } catch (e) {
+    const msg = (e?.message || '').toLowerCase();
+    if (msg.includes('context') || msg.includes('kv cache') || msg.includes('too long')) {
+      throw new ContextFullError();
+    }
+    throw e;
+  }
 }
 
 /**
@@ -236,7 +255,7 @@ Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' 
       return JSON.parse(jsonStr);
     }
   } catch (e) {
-    if (!(e instanceof ModelNotReadyError)) throw e;
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
     // Model not ready — fall through to rule-based
   }
 
@@ -270,7 +289,7 @@ export async function generateWeeklySummaryLocally({ profile, weekHistory, phase
   try {
     modelResponse = await runInference(systemPrompt, userPrompt);
   } catch (e) {
-    if (!(e instanceof ModelNotReadyError)) throw e;
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
   }
   if (modelResponse) return modelResponse;
 
@@ -348,7 +367,7 @@ Respond ONLY with valid JSON matching this structure:
       return JSON.parse(jsonStr);
     }
   } catch (e) {
-    if (!(e instanceof ModelNotReadyError)) throw e;
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
   }
 
   const baseDuration = getBaseDuration(phase, profile.weeklyHours);
@@ -408,7 +427,7 @@ Respond ONLY with valid JSON matching this structure:
       return JSON.parse(jsonStr);
     }
   } catch (e) {
-    if (!(e instanceof ModelNotReadyError)) throw e;
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
   }
 
   return generateRuleBasedReplacement({ profile, readinessScore, phase, constraints });
@@ -508,7 +527,7 @@ This week: ${workoutList || 'no workouts completed'}, sessions: ${(weekHistory |
   try {
     modelResponse = await runInference(systemPrompt, userPrompt);
   } catch (e) {
-    if (!(e instanceof ModelNotReadyError)) throw e;
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
   }
   if (modelResponse) return modelResponse;
 
