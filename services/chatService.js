@@ -826,6 +826,35 @@ function guessYear(month, day) {
  * Build a conversation summary from full history.
  * Groups exchanges, extracts topics, appends last 3 messages verbatim.
  */
+/**
+ * Detect whether a coach message contains a specific workout prescription.
+ * Used to pin the last prescription in the conversation summary so the LLM
+ * stays consistent when asked the same question again.
+ */
+function isWorkoutPrescription(content) {
+  const lower = content.toLowerCase();
+  const hasDiscipline = ['swim', 'bike', 'run', 'ride', 'cycle', 'brick', 'strength'].some((d) =>
+    lower.includes(d)
+  );
+  const hasQuantity = ['min', 'hour', 'km', 'mile', 'interval', 'zone', 'session'].some((q) =>
+    lower.includes(q)
+  );
+  const hasPrescriptionVerb = [
+    "i'd suggest",
+    'i recommend',
+    'i prescribe',
+    'your workout',
+    'how about a',
+    'try a',
+    "let's do",
+    "i've updated",
+    "i've scheduled",
+    'plan includes',
+    'scheduled a',
+  ].some((v) => lower.includes(v));
+  return (hasDiscipline && hasQuantity) || hasPrescriptionVerb;
+}
+
 export function buildConversationSummary(messages) {
   if (!messages || messages.length === 0) return '';
 
@@ -845,6 +874,20 @@ export function buildConversationSummary(messages) {
   if (topTopics.length > 0) {
     parts.push(`CONVERSATION HISTORY (${messages.length} messages):`);
     parts.push(`Key topics discussed: ${topTopics.join(', ')}`);
+  }
+
+  // Pin the most recent workout prescription from the full history.
+  // This prevents the LLM from prescribing a different workout when asked again.
+  const coachMessages = messages.filter((m) => m.role === 'coach');
+  const lastPrescription = [...coachMessages]
+    .reverse()
+    .find((m) => isWorkoutPrescription(m.content));
+  if (lastPrescription) {
+    const capped =
+      lastPrescription.content.length > 250
+        ? `${lastPrescription.content.slice(0, 250)}…`
+        : lastPrescription.content;
+    parts.push(`LAST WORKOUT PRESCRIPTION (stay consistent with this): ${capped}`);
   }
 
   // Include last 2 exchanges (4 messages) with content capped to save context space

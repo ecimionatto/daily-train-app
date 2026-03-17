@@ -156,6 +156,33 @@ describe('buildConversationSummary', () => {
     expect(summary).toContain('My specific question here');
     expect(summary).toContain('My specific answer here');
   });
+
+  it('pins the last workout prescription so the coach stays consistent', () => {
+    const messages = [
+      { role: 'athlete', content: 'What should I do today?', timestamp: new Date().toISOString() },
+      {
+        role: 'coach',
+        content: "I'd suggest a 60 min easy run at Zone 2 today to build your aerobic base.",
+        timestamp: new Date().toISOString(),
+      },
+      { role: 'athlete', content: 'Can you repeat that?', timestamp: new Date().toISOString() },
+      { role: 'coach', content: 'Of course!', timestamp: new Date().toISOString() },
+      { role: 'athlete', content: 'What workout again?', timestamp: new Date().toISOString() },
+      { role: 'coach', content: 'Sure!', timestamp: new Date().toISOString() },
+    ];
+    const summary = buildConversationSummary(messages);
+    expect(summary).toContain('LAST WORKOUT PRESCRIPTION');
+    expect(summary).toContain('60 min easy run');
+  });
+
+  it('does not add LAST WORKOUT PRESCRIPTION when no prescription exists', () => {
+    const messages = [
+      { role: 'athlete', content: 'How is my HRV?', timestamp: new Date().toISOString() },
+      { role: 'coach', content: 'Your HRV looks good today.', timestamp: new Date().toISOString() },
+    ];
+    const summary = buildConversationSummary(messages);
+    expect(summary).not.toContain('LAST WORKOUT PRESCRIPTION');
+  });
 });
 
 describe('generateFallbackGreeting', () => {
