@@ -76,7 +76,7 @@ export default function ChatScreen() {
     const textStyle = [styles.messageText, isCoach ? styles.coachText : styles.athleteText];
     return (
       <View style={[styles.messageBubble, isCoach ? styles.coachBubble : styles.athleteBubble]}>
-        {isCoach && <Text style={styles.coachLabel}>ALEX</Text>}
+        {isCoach && <Text style={styles.coachLabel}>COACH</Text>}
         <Text style={textStyle}>
           {isCoach ? renderInlineMarkdown(item.content, textStyle, item.id) : item.content}
         </Text>
@@ -120,8 +120,8 @@ export default function ChatScreen() {
       keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Alex</Text>
-        <Text style={styles.headerSubtitle}>ON-DEVICE AI COACH</Text>
+        <Text style={styles.headerTitle}>Coach</Text>
+        <Text style={styles.headerSubtitle}>ON-DEVICE AI</Text>
       </View>
 
       <FlatList
@@ -139,7 +139,7 @@ export default function ChatScreen() {
 
       {isResponding && (
         <View style={styles.typingContainer}>
-          <Text style={styles.typingText}>Alex is thinking...</Text>
+          <Text style={styles.typingText}>Coach is thinking...</Text>
         </View>
       )}
 

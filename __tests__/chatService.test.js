@@ -620,25 +620,30 @@ describe('classifyMessage - load_adjustment', () => {
   });
 });
 
-describe('buildCoachSystemPrompt - coach name fix', () => {
-  it('uses coach name Alex, not Coach', () => {
+describe('buildCoachSystemPrompt - coach persona', () => {
+  it('refers to the AI as Coach', () => {
     const context = { athleteProfile: { raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
-    expect(prompt).toContain('named Alex');
-    expect(prompt).not.toMatch(/named Coach\b/);
+    expect(prompt).toContain('Coach');
   });
 
   it('addresses athlete by name when name is in profile', () => {
     const context = { athleteProfile: { name: 'Sarah', raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('Sarah');
-    expect(prompt).toContain("Never call the athlete 'Coach'");
   });
 
   it('falls back to coaching the athlete when no name in profile', () => {
     const context = { athleteProfile: { raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('the athlete');
+  });
+
+  it('prohibits fabricating future workout specifics', () => {
+    const context = { athleteProfile: { raceType: 'triathlon' } };
+    const prompt = buildCoachSystemPrompt(context);
+    expect(prompt).toContain('FUTURE WORKOUTS');
+    expect(prompt).toContain('NEVER invent');
   });
 
   it('includes active load adjustment in ATHLETE INSIGHTS section', () => {

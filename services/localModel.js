@@ -141,6 +141,15 @@ export function isModelReady() {
   return modelLoaded && llamaContext !== null;
 }
 
+/** Sanitize a parsed AI workout — rest days must have duration 0. */
+function sanitizeWorkout(workout) {
+  if (!workout) return workout;
+  if (workout.discipline === 'rest') {
+    return { ...workout, duration: 0 };
+  }
+  return workout;
+}
+
 /**
  * Thrown by runInference when the local model is not yet loaded.
  * Callers should surface this to the user rather than falling back silently.
@@ -252,7 +261,7 @@ Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' 
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
-      return JSON.parse(jsonStr);
+      return sanitizeWorkout(JSON.parse(jsonStr));
     }
   } catch (e) {
     if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
@@ -364,7 +373,7 @@ Respond ONLY with valid JSON matching this structure:
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
-      return JSON.parse(jsonStr);
+      return sanitizeWorkout(JSON.parse(jsonStr));
     }
   } catch (e) {
     if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
@@ -424,7 +433,7 @@ Respond ONLY with valid JSON matching this structure:
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
-      return JSON.parse(jsonStr);
+      return sanitizeWorkout(JSON.parse(jsonStr));
     }
   } catch (e) {
     if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
