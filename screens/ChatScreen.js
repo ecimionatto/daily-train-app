@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,13 +19,45 @@ const SUGGESTIONS = [
   'Tips for race day nutrition?',
 ];
 
+/**
+ * Render inline markdown: **bold** and *italic* only.
+ * Returns an array of <Text> elements safe for React Native.
+ */
+function renderInlineMarkdown(text, baseStyle, key) {
+  const parts = [];
+  // Split on **bold** or *italic* tokens
+  const tokens = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  tokens.forEach((token, i) => {
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(
+        <Text key={`${key}-${i}`} style={[baseStyle, styles.bold]}>
+          {token.slice(2, -2)}
+        </Text>
+      );
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      parts.push(
+        <Text key={`${key}-${i}`} style={[baseStyle, styles.italic]}>
+          {token.slice(1, -1)}
+        </Text>
+      );
+    } else if (token.length > 0) {
+      parts.push(
+        <Text key={`${key}-${i}`} style={baseStyle}>
+          {token}
+        </Text>
+      );
+    }
+  });
+  return parts;
+}
+
 export default function ChatScreen() {
   const { messages, isResponding, sendMessage } = useChat();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef(null);
   const insets = useSafeAreaInsets();
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -41,11 +73,12 @@ export default function ChatScreen() {
 
   function renderMessage({ item }) {
     const isCoach = item.role === 'coach';
+    const textStyle = [styles.messageText, isCoach ? styles.coachText : styles.athleteText];
     return (
       <View style={[styles.messageBubble, isCoach ? styles.coachBubble : styles.athleteBubble]}>
-        {isCoach && <Text style={styles.coachLabel}>COACH</Text>}
-        <Text style={[styles.messageText, isCoach ? styles.coachText : styles.athleteText]}>
-          {item.content}
+        {isCoach && <Text style={styles.coachLabel}>ALEX</Text>}
+        <Text style={textStyle}>
+          {isCoach ? renderInlineMarkdown(item.content, textStyle, item.id) : item.content}
         </Text>
         <Text style={styles.timestamp}>
           {new Date(item.timestamp).toLocaleTimeString([], {
@@ -87,8 +120,8 @@ export default function ChatScreen() {
       keyboardVerticalOffset={0}
     >
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Coach</Text>
-        <Text style={styles.headerSubtitle}>ON-DEVICE AI</Text>
+        <Text style={styles.headerTitle}>Alex</Text>
+        <Text style={styles.headerSubtitle}>ON-DEVICE AI COACH</Text>
       </View>
 
       <FlatList
@@ -106,7 +139,7 @@ export default function ChatScreen() {
 
       {isResponding && (
         <View style={styles.typingContainer}>
-          <Text style={styles.typingText}>Coach is thinking...</Text>
+          <Text style={styles.typingText}>Alex is thinking...</Text>
         </View>
       )}
 
@@ -202,6 +235,12 @@ const styles = StyleSheet.create({
   },
   athleteText: {
     color: '#0a0a0f',
+  },
+  bold: {
+    fontWeight: '700',
+  },
+  italic: {
+    fontStyle: 'italic',
   },
   timestamp: {
     color: '#666',

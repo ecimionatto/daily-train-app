@@ -230,7 +230,9 @@ export function ChatProvider({ children }) {
       todayWorkout,
       yesterdayScore,
       overallReadiness,
-      workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
+      workoutHistory: (completedWorkouts?.length ? completedWorkouts : workoutHistory || []).slice(
+        -14
+      ),
       conversationSummary: buildConversationSummary(messages),
       trends,
       onWorkoutSwap: swapTodayWorkout,
@@ -267,7 +269,10 @@ export function ChatProvider({ children }) {
           todayWorkout,
           yesterdayScore,
           overallReadiness,
-          workoutHistory: (completedWorkouts || workoutHistory || []).slice(-14),
+          workoutHistory: (completedWorkouts?.length
+            ? completedWorkouts
+            : workoutHistory || []
+          ).slice(-14),
           conversationSummary: buildConversationSummary(updatedMessages),
           onWorkoutSwap: swapTodayWorkout,
           onProfileUpdate: saveProfile,

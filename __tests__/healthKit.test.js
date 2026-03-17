@@ -100,11 +100,12 @@ describe('fetchCompletedWorkouts', () => {
     const workouts = await fetchCompletedWorkouts(7);
 
     expect(workouts).toHaveLength(2);
-    expect(workouts[0].discipline).toBe('run');
-    expect(workouts[0].durationMinutes).toBe(60);
+    // Sorted chronologically ascending: swim (Mar 6) before run (Mar 7)
+    expect(workouts[0].discipline).toBe('swim');
+    expect(workouts[0].durationMinutes).toBe(45);
     expect(workouts[0].source).toBe('Apple Watch');
-    expect(workouts[1].discipline).toBe('swim');
-    expect(workouts[1].durationMinutes).toBe(45);
+    expect(workouts[1].discipline).toBe('run');
+    expect(workouts[1].durationMinutes).toBe(60);
   });
 
   it('maps workout activity types correctly in results', async () => {

@@ -24,13 +24,13 @@ describe('ChatScreen', () => {
     getCoachResponse.mockResolvedValue('Great question! Keep training hard.');
   });
 
-  it('renders header with Coach title', async () => {
+  it('renders header with Alex title', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
     const { getByText } = renderWithProviders(<ChatScreen />, { withChat: true });
 
     await waitFor(() => {
-      expect(getByText('Coach')).toBeTruthy();
-      expect(getByText('ON-DEVICE AI')).toBeTruthy();
+      expect(getByText('Alex')).toBeTruthy();
+      expect(getByText('ON-DEVICE AI COACH')).toBeTruthy();
     });
   });
 
@@ -95,7 +95,7 @@ describe('ChatScreen', () => {
 
     await waitFor(() => {
       expect(getByText('Great question! Keep training hard.')).toBeTruthy();
-      expect(getByText('COACH')).toBeTruthy();
+      expect(getByText('ALEX')).toBeTruthy();
     });
   });
 

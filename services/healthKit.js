@@ -480,6 +480,8 @@ export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) 
         return w;
       })
     );
+    // Sort chronologically so slice(-N) reliably returns the N most recent
+    enriched.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
     return enriched;
   } catch (e) {
     // eslint-disable-next-line no-console
