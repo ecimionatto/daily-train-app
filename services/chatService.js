@@ -938,23 +938,28 @@ When the athlete is struggling, encourage them but also offer to adjust the work
   sections.push(`TODAY'S WORKOUT: ${workoutInfo}`);
 
   if (workoutHistory && workoutHistory.length > 0) {
-    const recent = workoutHistory.slice(-7);
-    const historyLines = recent.map((w) => {
-      const parts = [w.discipline];
-      parts.push(`${w.durationMinutes || w.duration}min`);
-      if (w.avgHeartRate) parts.push(`avg ${w.avgHeartRate}bpm`);
-      if (w.effortScore) parts.push(`effort ${w.effortScore}/10`);
-      if (w.avgPace) {
-        const mins = Math.floor(w.avgPace);
-        const secs = Math.round((w.avgPace - mins) * 60);
-        parts.push(`pace ${mins}:${secs.toString().padStart(2, '0')}/km`);
-      }
-      if (w.startDate) parts.push(`(${new Date(w.startDate).toLocaleDateString()})`);
-      return parts.join(', ');
-    });
-    sections.push(
-      `RECENT WORKOUT HISTORY (last ${recent.length} sessions):\n${historyLines.join('\n')}`
-    );
+    // Exclude rest days — they add noise and have no meaningful metrics
+    const activeWorkouts = workoutHistory.filter((w) => w.discipline !== 'rest');
+    const recent = activeWorkouts.slice(-7);
+    if (recent.length > 0) {
+      const historyLines = recent.map((w) => {
+        const duration = w.durationMinutes || w.duration || '?';
+        const parts = [w.discipline, `${duration}min`];
+        if (w.avgHeartRate) parts.push(`avg ${w.avgHeartRate}bpm`);
+        if (w.maxHeartRate) parts.push(`max ${w.maxHeartRate}bpm`);
+        if (w.effortScore) parts.push(`effort ${w.effortScore}/10`);
+        if (w.avgPace) {
+          const mins = Math.floor(w.avgPace);
+          const secs = Math.round((w.avgPace - mins) * 60);
+          parts.push(`pace ${mins}:${secs.toString().padStart(2, '0')}/km`);
+        }
+        if (w.startDate) parts.push(`(${new Date(w.startDate).toLocaleDateString()})`);
+        return parts.join(', ');
+      });
+      sections.push(
+        `RECENT WORKOUT HISTORY (last ${recent.length} sessions):\n${historyLines.join('\n')}`
+      );
+    }
   }
 
   // Training trends
@@ -1015,7 +1020,7 @@ HRV vs baseline: >+10%→upgrade | ±10%→execute | -5-10%→drop 1 zone | -10-
 RHR above baseline: +3-5bpm→moderate only | +5-10bpm→no intensity | +10bpm→rest
 PHASES: BASE=80%Z2+volume(≤8%/wk) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
 TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
-LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest. 80/20 rule.`);
+LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest. 80/20 rule=80% of sessions must be easy Zone 1-2, only 20% hard Zone 3-5 — this is NOT about recovery vs training time.`);
   }
 
   if (conversationSummary) {
@@ -1181,6 +1186,19 @@ export function classifyMessage(message) {
         'compete on',
         'event in',
         'event on',
+        // Race changes / cancellations / postponements
+        'pushed my race',
+        'postponed my race',
+        'cancelled my race',
+        'canceled my race',
+        'race is cancelled',
+        'race is canceled',
+        'race is postponed',
+        'dropped out',
+        'not racing',
+        'race next month',
+        'race in a few weeks',
+        'race is in',
       ],
     },
     {
@@ -1203,11 +1221,30 @@ export function classifyMessage(message) {
         'tomorrow off',
         'need a rest day',
         'give me tomorrow off',
+        // Explicit fatigue / burnout declarations (not questions or mild descriptions)
+        "i'm exhausted",
+        'i am exhausted',
+        'feeling exhausted',
+        'i am burned out',
+        "i'm burned out",
+        'burned out',
+        'burnt out',
+        'dead legs',
+        'legs are dead',
+        'totally drained',
+        'completely drained',
+        'too sore to train',
+        'body is wrecked',
+        'feeling wrecked',
+        'need a few days off',
+        'need to skip',
+        // Load increase signals
         'push harder',
         'more volume',
         'increase load',
         'step it up',
         'push me harder',
+        // Discipline focus signals
         'focus on swim',
         'focus on bike',
         'focus on run',
