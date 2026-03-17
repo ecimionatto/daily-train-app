@@ -373,13 +373,25 @@ function getHeartRateSamples(startDate, endDate) {
 
 /**
  * Fetch heart rate stats for a specific workout time window.
+ *
+ * HealthKit getHeartRateSamples returns ALL samples in the window — including
+ * passive background readings (60-80 bpm) Apple Watch takes every few minutes.
+ * Including those drags the workout average far below actual exercise HR.
+ *
+ * Fix: keep only samples at or above the exercise floor (100 bpm). If nothing
+ * clears the floor (e.g. a genuine rest/yoga session), fall back to all samples
+ * so we still return something rather than null.
  */
 export async function fetchHeartRateForWorkout(startDate, endDate) {
   const samples = await getHeartRateSamples(startDate, endDate);
   if (!samples || samples.length === 0) return { avgHeartRate: null, maxHeartRate: null };
 
-  const values = samples.map((s) => s.value).filter((v) => v > 0);
-  if (values.length === 0) return { avgHeartRate: null, maxHeartRate: null };
+  const allValues = samples.map((s) => s.value).filter((v) => v > 0);
+  if (allValues.length === 0) return { avgHeartRate: null, maxHeartRate: null };
+
+  const EXERCISE_FLOOR_BPM = 100;
+  const exerciseValues = allValues.filter((v) => v >= EXERCISE_FLOOR_BPM);
+  const values = exerciseValues.length > 0 ? exerciseValues : allValues;
 
   const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
   const max = Math.round(Math.max(...values));
