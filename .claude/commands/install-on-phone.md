@@ -31,14 +31,18 @@ Build and install the app on a connected physical iPhone.
    - `credentialStateToInt`: add `@unknown default: return 0` after `.transferred` case
    - `realUserStatusToInt`: add `@unknown default: return 1` after `.unsupported, .none` case
 
-4. **Release build** — JS bundle embedded, no cable required at runtime (replace DEVICE_UDID with the actual device ID from step 1):
+4. **Release build + install** — JS bundle embedded, no cable required at runtime (replace DEVICE_UDID with the actual device ID from step 1):
    ```bash
    xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
      -destination 'id=DEVICE_UDID' -configuration Release \
      DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build
+
+   # xcodebuild 'build' only builds — push .app to device explicitly:
+   APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData/DailyTrain-*/Build/Products/Release-iphoneos -name "DailyTrain.app" -maxdepth 1 | head -1)
+   xcrun devicectl device install app --device DEVICE_UDID "$APP_PATH"
    ```
 
-   **Debug build** — use only when actively developing with hot reload:
+   **Debug build** — use only when actively developing with hot reload (Metro must be running):
    ```bash
    xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
      -destination 'id=DEVICE_UDID' -configuration Debug \
