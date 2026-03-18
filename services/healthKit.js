@@ -151,8 +151,12 @@ export async function fetchHealthHistory(days = 14) {
 
 function getRestingHeartRate() {
   return new Promise((resolve) => {
+    // RHR is a daily aggregate value written by Apple Watch, typically in the morning.
+    // Look back 3 days to catch readings missed if the watch wasn't worn last night.
     const options = {
-      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      limit: 1,
+      ascending: false,
     };
     AppleHealthKit.getRestingHeartRate(options, (err, results) => {
       if (err || !results?.value) {
@@ -166,8 +170,10 @@ function getRestingHeartRate() {
 
 function getHRV() {
   return new Promise((resolve) => {
+    // HRV is measured during sleep or rest by Apple Watch.
+    // Look back 3 days to cover nights where the watch wasn't worn.
     const options = {
-      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
@@ -175,7 +181,9 @@ function getHRV() {
       if (err || !results?.length) {
         resolve(null);
       } else {
-        resolve(Math.round(results[0].value));
+        const value = Math.round(results[0].value);
+        // 0ms RMSSD is not physiologically meaningful — treat as missing data
+        resolve(value > 0 ? value : null);
       }
     });
   });

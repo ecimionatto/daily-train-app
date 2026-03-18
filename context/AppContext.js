@@ -202,6 +202,20 @@ export function AppProvider({ children }) {
     }
   }
 
+  /**
+   * Clear the cached today workout and reset state to null.
+   * Used after coach-driven plan changes so DashboardScreen regenerates
+   * a fresh workout based on the updated athlete profile.
+   */
+  async function clearTodayWorkout() {
+    try {
+      await AsyncStorage.removeItem('todayWorkout');
+      setTodayWorkout(null);
+    } catch (e) {
+      console.warn('Failed to clear today workout:', e);
+    }
+  }
+
   function saveAlternativeWorkout(workout) {
     setAlternativeWorkout(workout);
   }
@@ -353,6 +367,7 @@ export function AppProvider({ children }) {
     todayWorkout,
     saveTodayWorkout,
     swapTodayWorkout,
+    clearTodayWorkout,
     readinessScore,
     getTrainingPhase,
     getDaysToRace,

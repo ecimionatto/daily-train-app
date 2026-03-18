@@ -39,8 +39,22 @@ export function ChatProvider({ children }) {
     swapTodayWorkout,
     completedWorkouts,
     saveProfile,
+    clearTodayWorkout,
     trends,
   } = useApp();
+
+  /**
+   * Profile update callback for the coach.
+   * Saves the updated profile AND clears today's cached workout so DashboardScreen
+   * regenerates a fresh workout based on the new plan/race date.
+   */
+  const onProfileUpdate = useCallback(
+    async (profile) => {
+      await saveProfile(profile);
+      await clearTodayWorkout();
+    },
+    [saveProfile, clearTodayWorkout]
+  );
 
   useEffect(() => {
     migrateStaleGreetings().then(() => {
@@ -236,7 +250,7 @@ export function ChatProvider({ children }) {
       conversationSummary: buildConversationSummary(messages),
       trends,
       onWorkoutSwap: swapTodayWorkout,
-      onProfileUpdate: saveProfile,
+      onProfileUpdate: onProfileUpdate,
     };
   }
 
@@ -275,7 +289,7 @@ export function ChatProvider({ children }) {
           ).slice(-14),
           conversationSummary: buildConversationSummary(updatedMessages),
           onWorkoutSwap: swapTodayWorkout,
-          onProfileUpdate: saveProfile,
+          onProfileUpdate: onProfileUpdate,
         };
         const responseText = await getCoachResponse(text.trim(), context, updatedMessages);
 
@@ -340,6 +354,7 @@ export function ChatProvider({ children }) {
       completedWorkouts,
       swapTodayWorkout,
       saveProfile,
+      onProfileUpdate,
       getTrainingPhase,
       getDaysToRace,
     ]
