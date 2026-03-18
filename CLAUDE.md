@@ -108,7 +108,14 @@ LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
 # Add @unknown default to switch statements in:
 # node_modules/expo-apple-authentication/ios/AppleAuthenticationUtils.swift
 
-# Build for device (requires connected iPhone)
+# Build for device — Release (JS bundle embedded, works without cable or Metro)
+# USE THIS by default so the app runs standalone on the iPhone.
+xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+  -destination 'id=DEVICE_UDID' -configuration Release \
+  DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build
+
+# Build for device — Debug (JS served live from Metro, requires USB + npm start)
+# USE ONLY when actively developing with hot reload.
 xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
   -destination 'id=DEVICE_UDID' -configuration Debug \
   DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build

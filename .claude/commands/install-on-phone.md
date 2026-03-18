@@ -2,6 +2,17 @@
 
 Build and install the app on a connected physical iPhone.
 
+## Debug vs Release
+
+| | Debug | Release |
+|---|---|---|
+| JS bundle | Loaded live from Metro over USB | Bundled & embedded in the .app |
+| Cable required at runtime | Yes | No |
+| Rebuild needed for JS changes | No (hot reload) | Yes |
+| Use when | Developing | Running standalone |
+
+**Default: Release** — so the app works without a cable or Mac running.
+
 ## Steps
 
 1. Verify a physical iPhone is connected:
@@ -20,7 +31,14 @@ Build and install the app on a connected physical iPhone.
    - `credentialStateToInt`: add `@unknown default: return 0` after `.transferred` case
    - `realUserStatusToInt`: add `@unknown default: return 1` after `.unsupported, .none` case
 
-4. Build and install on the connected iPhone (replace DEVICE_UDID with the actual device ID from step 1):
+4. **Release build** — JS bundle embedded, no cable required at runtime (replace DEVICE_UDID with the actual device ID from step 1):
+   ```bash
+   xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+     -destination 'id=DEVICE_UDID' -configuration Release \
+     DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build
+   ```
+
+   **Debug build** — use only when actively developing with hot reload:
    ```bash
    xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
      -destination 'id=DEVICE_UDID' -configuration Debug \
@@ -35,4 +53,4 @@ Build and install the app on a connected physical iPhone.
 - Free Apple account (Personal Team J52KM8A8YH): app expires after 7 days
 - Paid Apple Developer account ($99/yr): permanent installs
 - HealthKit only works on physical devices, not simulator
-- Metro bundler must be running (`npm start`) for JS bundle to load
+- Release builds take longer (Hermes bundles + minifies JS) — expect 5-10 min extra
