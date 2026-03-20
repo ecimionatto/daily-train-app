@@ -8,6 +8,8 @@ import {
   buildConversationSummary,
   generateFallbackGreeting,
   extractAthleteInsights,
+  extractSessionFacts,
+  buildContextForAI,
 } from '../services/chatService';
 import { ModelNotReadyError } from '../services/localModel';
 
@@ -781,5 +783,192 @@ describe('buildCoachSystemPrompt - plan adaptation instruction', () => {
     expect(prompt).not.toMatch(
       /Push the athlete to stay consistent and follow their training plan/
     );
+  });
+});
+
+describe('extractSessionFacts', () => {
+  const makeMsg = (role, content) => ({
+    role,
+    content,
+    timestamp: new Date().toISOString(),
+  });
+
+  it('returns empty facts for empty messages', () => {
+    const facts = extractSessionFacts([], '2026-03-20');
+    expect(facts.date).toBe('2026-03-20');
+    expect(facts.keyFacts).toEqual([]);
+    expect(facts.intents).toEqual([]);
+    expect(facts.workoutPrescribed).toBeNull();
+  });
+
+  it('returns empty facts for null messages', () => {
+    const facts = extractSessionFacts(null, '2026-03-19');
+    expect(facts.date).toBe('2026-03-19');
+    expect(facts.keyFacts).toEqual([]);
+    expect(facts.workoutPrescribed).toBeNull();
+  });
+
+  it('detects workout swapped key fact from coach message', () => {
+    const messages = [makeMsg('coach', "I've swapped your run for a swim session today.")];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.keyFacts).toContain('workout swapped');
+  });
+
+  it('detects load reduced key fact', () => {
+    const messages = [makeMsg('coach', "I've reduced your load for this week, keep it easier.")];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.keyFacts).toContain('load reduced');
+  });
+
+  it('detects injury/pain mention from athlete message', () => {
+    const messages = [makeMsg('athlete', 'My knee hurts after the run yesterday.')];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.keyFacts).toContain('injury/pain mention');
+  });
+
+  it('extracts intents from athlete messages', () => {
+    const messages = [
+      makeMsg('athlete', 'What is my workout today?'),
+      makeMsg('coach', 'Today you have a 60 min run.'),
+      makeMsg('athlete', 'My HRV is low, should I rest?'),
+    ];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.intents).toContain('workout_inquiry');
+    expect(facts.intents).toContain('recovery');
+  });
+
+  it('does not include general intent in intents list', () => {
+    const messages = [makeMsg('athlete', 'Thanks coach!')];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.intents).not.toContain('general');
+  });
+
+  it('extracts last workout prescription from coach message', () => {
+    const messages = [
+      makeMsg('coach', "I'd suggest a 60 min easy run at Zone 2 today to build your aerobic base."),
+    ];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.workoutPrescribed).toContain("I'd suggest");
+  });
+
+  it('caps workout prescription at 80 chars', () => {
+    const longPrescription =
+      "I'd suggest a very long workout description that goes on and on far beyond 80 characters total here.";
+    const messages = [makeMsg('coach', longPrescription)];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.workoutPrescribed.length).toBeLessThanOrEqual(82); // 80 chars + ellipsis
+  });
+
+  it('caps keyFacts at 5 items', () => {
+    const messages = [
+      makeMsg('coach', 'I swapped your bike workout to a swim session (knee pain).'),
+      makeMsg('coach', 'I reduced the load and scheduled a lighter week.'),
+      makeMsg('coach', 'Rest day added for recovery.'),
+      makeMsg('athlete', 'I am very tired and fatigued this week.'),
+      makeMsg('coach', 'Race prep discussion: you have 30 days to the race.'),
+    ];
+    const facts = extractSessionFacts(messages, '2026-03-20');
+    expect(facts.keyFacts.length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('buildContextForAI', () => {
+  const makeMsg = (role, content) => ({
+    role,
+    content,
+    timestamp: new Date().toISOString(),
+  });
+
+  it('returns empty string for empty messages and no history', () => {
+    const result = buildContextForAI([], []);
+    expect(result).toBe('');
+  });
+
+  it('returns empty string for null inputs', () => {
+    const result = buildContextForAI(null, null);
+    expect(result).toBe('');
+  });
+
+  it('includes RECENT EXCHANGES section for current session messages', () => {
+    const messages = [
+      makeMsg('athlete', 'How is my recovery?'),
+      makeMsg('coach', 'Your recovery looks good.'),
+    ];
+    const result = buildContextForAI(messages, []);
+    expect(result).toContain('RECENT EXCHANGES (today):');
+    expect(result).toContain('Athlete: How is my recovery?');
+    expect(result).toContain('Coach: Your recovery looks good.');
+  });
+
+  it('includes only last 10 messages from current session', () => {
+    const messages = Array.from({ length: 15 }, (_, i) =>
+      makeMsg(i % 2 === 0 ? 'athlete' : 'coach', `Message ${i}`)
+    );
+    const result = buildContextForAI(messages, []);
+    expect(result).toContain('Message 14');
+    expect(result).not.toContain('Message 4');
+  });
+
+  it('includes RECENT HISTORY section for context history', () => {
+    const history = [
+      {
+        date: '2026-03-19',
+        keyFacts: ['load reduced', 'knee pain'],
+        intents: [],
+        workoutPrescribed: null,
+      },
+      {
+        date: '2026-03-18',
+        keyFacts: ['workout swapped'],
+        intents: ['workout_swap'],
+        workoutPrescribed: null,
+      },
+    ];
+    const result = buildContextForAI([], history);
+    expect(result).toContain('RECENT HISTORY (last 7 days):');
+    expect(result).toContain('2026-03-19: load reduced, knee pain');
+    expect(result).toContain('2026-03-18: workout swapped');
+  });
+
+  it('includes BACKGROUND section for sessions beyond the last 7', () => {
+    const history = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-03-${String(10 + i).padStart(2, '0')}`,
+      keyFacts: [`fact-${i}`],
+      intents: [],
+      workoutPrescribed: null,
+    }));
+    const result = buildContextForAI([], history);
+    expect(result).toContain('BACKGROUND:');
+  });
+
+  it('pins last workout prescription in current session', () => {
+    const messages = [
+      makeMsg('athlete', 'What should I do today?'),
+      makeMsg('coach', "I'd suggest a 60 min easy run at Zone 2 today to build your aerobic base."),
+      makeMsg('athlete', 'Can you repeat?'),
+      makeMsg('coach', 'Of course!'),
+    ];
+    const result = buildContextForAI(messages, []);
+    expect(result).toContain('LAST WORKOUT PRESCRIPTION');
+    expect(result).toContain('60 min easy run');
+  });
+
+  it('shows intents as fallback when no keyFacts in history session', () => {
+    const history = [
+      {
+        date: '2026-03-19',
+        keyFacts: [],
+        intents: ['workout_inquiry', 'recovery'],
+        workoutPrescribed: null,
+      },
+    ];
+    const result = buildContextForAI([], history);
+    expect(result).toContain('workout_inquiry');
+  });
+
+  it('shows general chat when both keyFacts and intents are empty in history', () => {
+    const history = [{ date: '2026-03-19', keyFacts: [], intents: [], workoutPrescribed: null }];
+    const result = buildContextForAI([], history);
+    expect(result).toContain('general chat');
   });
 });

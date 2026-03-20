@@ -2,19 +2,22 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getCoachResponse,
-  buildConversationSummary,
+  buildContextForAI,
   buildModelNotReadyMessage,
   generateProactiveGreeting,
   generateWeeklyReview,
   extractAthleteInsights,
+  extractSessionFacts,
 } from '../services/chatService';
 import { ModelNotReadyError, ContextFullError } from '../services/localModel';
 import { useApp } from './AppContext';
 
 const ChatContext = createContext();
 
-const STORAGE_KEY = 'chatConversation';
-const MAX_STORED_MESSAGES = 200;
+const SESSION_KEY = 'chatSession';
+const CONTEXT_HISTORY_KEY = 'chatContextHistory';
+const MAX_STORED_MESSAGES = 50;
+const MAX_HISTORY_SESSIONS = 30;
 
 export function useChat() {
   return useContext(ChatContext);
@@ -22,6 +25,7 @@ export function useChat() {
 
 export function ChatProvider({ children }) {
   const [messages, setMessages] = useState([]);
+  const [contextHistory, setContextHistory] = useState([]);
   const [isResponding, setIsResponding] = useState(false);
   const [hasGreetedToday, setHasGreetedToday] = useState(false);
   const [hasReviewedThisWeek, setHasReviewedThisWeek] = useState(false);
@@ -57,13 +61,12 @@ export function ChatProvider({ children }) {
   );
 
   useEffect(() => {
-    migrateStaleGreetings()
-      .then(() => migrateNamedGreetings())
-      .then(() => {
-        loadConversation();
-        checkGreetingStatus();
-        checkWeeklyReviewStatus();
-      });
+    migrateToSessionModel().then(() => {
+      loadOrStartSession();
+      checkGreetingStatus();
+      checkWeeklyReviewStatus();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Proactive greeting trigger
@@ -82,93 +85,118 @@ export function ChatProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasReviewedThisWeek, workoutHistory, athleteProfile]);
 
-  async function migrateStaleGreetings() {
-    const MIGRATION_KEY = 'chatMigration_v1_clearFabricatedGreetings';
+  /**
+   * v3 migration: archive old chatConversation into chatContextHistory and switch to session model.
+   */
+  async function migrateToSessionModel() {
+    const MIGRATION_KEY = 'chatMigration_v3_sessionModel';
     try {
       const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
       if (migrated) return;
 
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const msgs = JSON.parse(stored);
-        const cleaned = msgs.filter((msg) => {
-          if (!msg.metadata?.proactive) return true;
-          // Remove proactive greetings that contain percentage claims (fabricated stats)
-          return !/\d+%/.test(msg.content);
-        });
-        if (cleaned.length !== msgs.length) {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-          // Reset greeting date so a fresh one is generated
-          await AsyncStorage.removeItem('lastGreetingDate');
-          // eslint-disable-next-line no-console
-          console.log(
-            `[Chat] Migrated: removed ${msgs.length - cleaned.length} stale proactive greetings`
-          );
-        }
+      const oldConversation = await AsyncStorage.getItem('chatConversation');
+      if (oldConversation) {
+        const oldMessages = JSON.parse(oldConversation);
+        const historyEntry = {
+          date: new Date().toISOString().slice(0, 10),
+          keyFacts: ['Previous chat history archived'],
+          intents: [],
+          workoutPrescribed: null,
+        };
+        // Load existing history if any and prepend the archive entry
+        const existingHistoryStr = await AsyncStorage.getItem(CONTEXT_HISTORY_KEY);
+        const existingHistory = existingHistoryStr ? JSON.parse(existingHistoryStr) : [];
+        const updatedHistory = [historyEntry, ...existingHistory].slice(0, MAX_HISTORY_SESSIONS);
+        await AsyncStorage.setItem(CONTEXT_HISTORY_KEY, JSON.stringify(updatedHistory));
+        // eslint-disable-next-line no-console
+        console.log(
+          `[Chat] v3 migration: archived ${oldMessages.length} messages from old conversation`
+        );
       }
+
+      await AsyncStorage.removeItem('chatConversation');
+      await AsyncStorage.removeItem('lastGreetingDate');
       await AsyncStorage.setItem(MIGRATION_KEY, 'done');
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.log('[Chat] Migration failed:', e.message || e);
+      console.log('[Chat] v3 migration failed:', e.message || e);
     }
   }
 
-  async function migrateNamedGreetings() {
-    const MIGRATION_KEY = 'chatMigration_v2_removeNamedGreetings';
+  /**
+   * Load today's session or start a fresh one, archiving yesterday's session if needed.
+   */
+  async function loadOrStartSession() {
     try {
-      const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
-      if (migrated) return;
+      const today = new Date().toISOString().slice(0, 10);
+      const storedSessionStr = await AsyncStorage.getItem(SESSION_KEY);
+      const storedHistoryStr = await AsyncStorage.getItem(CONTEXT_HISTORY_KEY);
+      const storedHistory = storedHistoryStr ? JSON.parse(storedHistoryStr) : [];
 
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const msgs = JSON.parse(stored);
-        // Remove proactive greetings that address the athlete by name (e.g. "Hi Alex", "Hey Alex")
-        const cleaned = msgs.filter((msg) => {
-          if (!msg.metadata?.proactive) return true;
-          return !/\b(hi|hey|hello|good morning|morning|great job|well done),?\s+[A-Z][a-z]+\b/i.test(
-            msg.content
-          );
-        });
-        if (cleaned.length !== msgs.length) {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-          await AsyncStorage.removeItem('lastGreetingDate');
-          // eslint-disable-next-line no-console
-          console.log(
-            `[Chat] v2 Migrated: removed ${msgs.length - cleaned.length} named proactive greetings`
-          );
+      if (storedSessionStr) {
+        const storedSession = JSON.parse(storedSessionStr);
+        if (storedSession.date === today) {
+          // Today's session — load it
+          setMessages(storedSession.messages || []);
+          setContextHistory(storedHistory);
+          return;
         }
+        // Different day — archive and start fresh
+        const updatedHistory = archiveSessionToHistory(storedSession, storedHistory);
+        setContextHistory(updatedHistory);
+        setMessages([]);
+        await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ date: today, messages: [] }));
+      } else {
+        setContextHistory(storedHistory);
+        setMessages([]);
       }
-      await AsyncStorage.setItem(MIGRATION_KEY, 'done');
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.log('[Chat] v2 migration failed:', e.message || e);
+      console.warn('Failed to load chat session:', e);
     }
   }
 
-  async function loadConversation() {
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setMessages(JSON.parse(stored));
-    } catch (e) {
-      console.warn('Failed to load chat history:', e);
-    }
+  /**
+   * Archive a past session into the context history.
+   * Extracts key facts and prepends to existing history, keeping at most MAX_HISTORY_SESSIONS.
+   *
+   * @param {{ date: string, messages: Array }} session
+   * @param {Array} existingHistory
+   * @returns {Array} Updated history array (already saved to AsyncStorage)
+   */
+  function archiveSessionToHistory(session, existingHistory) {
+    const facts = extractSessionFacts(session.messages || [], session.date);
+    const updatedHistory = [facts, ...existingHistory].slice(0, MAX_HISTORY_SESSIONS);
+    // Fire-and-forget save
+    AsyncStorage.setItem(CONTEXT_HISTORY_KEY, JSON.stringify(updatedHistory)).catch((e) =>
+      console.warn('Failed to save context history:', e)
+    );
+    return updatedHistory;
   }
 
-  async function persistMessages(msgs) {
+  async function persistSession(msgs) {
     try {
+      const today = new Date().toISOString().slice(0, 10);
       const toStore = msgs.slice(-MAX_STORED_MESSAGES);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ date: today, messages: toStore }));
     } catch (e) {
-      console.warn('Failed to save chat history:', e);
+      console.warn('Failed to save chat session:', e);
     }
   }
 
   async function checkGreetingStatus() {
     try {
-      const lastGreeted = await AsyncStorage.getItem('lastGreetingDate');
-      const today = new Date().toDateString();
-      if (lastGreeted === today) {
-        setHasGreetedToday(true);
+      const today = new Date().toISOString().slice(0, 10);
+      const storedSessionStr = await AsyncStorage.getItem(SESSION_KEY);
+      if (storedSessionStr) {
+        const storedSession = JSON.parse(storedSessionStr);
+        const sessionDate = storedSession.date;
+        if (sessionDate === today) {
+          // Check if any proactive greeting exists in today's session
+          const hasGreeting = (storedSession.messages || []).some((m) => m.metadata?.proactive);
+          if (hasGreeting) {
+            setHasGreetedToday(true);
+          }
+        }
       }
     } catch (e) {
       console.warn('Failed to check greeting status:', e);
@@ -192,11 +220,18 @@ export function ChatProvider({ children }) {
   }
 
   async function sendProactiveGreeting() {
-    const lastGreeted = await AsyncStorage.getItem('lastGreetingDate');
-    const today = new Date().toDateString();
-    if (lastGreeted === today) {
-      setHasGreetedToday(true);
-      return;
+    const today = new Date().toISOString().slice(0, 10);
+    // Check current session for proactive greeting already sent today
+    const storedSessionStr = await AsyncStorage.getItem(SESSION_KEY).catch(() => null);
+    if (storedSessionStr) {
+      const storedSession = JSON.parse(storedSessionStr);
+      if (storedSession.date === today) {
+        const alreadyGreeted = (storedSession.messages || []).some((m) => m.metadata?.proactive);
+        if (alreadyGreeted) {
+          setHasGreetedToday(true);
+          return;
+        }
+      }
     }
 
     try {
@@ -213,10 +248,9 @@ export function ChatProvider({ children }) {
 
       setMessages((prev) => {
         const updated = [...prev, greetingMessage];
-        persistMessages(updated);
+        persistSession(updated);
         return updated;
       });
-      await AsyncStorage.setItem('lastGreetingDate', today);
       setHasGreetedToday(true);
     } catch (e) {
       if (e instanceof ModelNotReadyError) {
@@ -255,7 +289,7 @@ export function ChatProvider({ children }) {
 
       setMessages((prev) => {
         const updated = [...prev, reviewMessage];
-        persistMessages(updated);
+        persistSession(updated);
         return updated;
       });
       await AsyncStorage.setItem('lastWeeklyReviewDate', now.toISOString());
@@ -281,7 +315,7 @@ export function ChatProvider({ children }) {
       workoutHistory: (completedWorkouts?.length ? completedWorkouts : workoutHistory || []).slice(
         -14
       ),
-      conversationSummary: buildConversationSummary(messages),
+      conversationSummary: buildContextForAI(messages, contextHistory),
       trends,
       onWorkoutSwap: swapTodayWorkout,
       onProfileUpdate: onProfileUpdate,
@@ -321,7 +355,7 @@ export function ChatProvider({ children }) {
             ? completedWorkouts
             : workoutHistory || []
           ).slice(-14),
-          conversationSummary: buildConversationSummary(updatedMessages),
+          conversationSummary: buildContextForAI(updatedMessages, contextHistory),
           onWorkoutSwap: swapTodayWorkout,
           onProfileUpdate: onProfileUpdate,
         };
@@ -337,7 +371,7 @@ export function ChatProvider({ children }) {
 
         const finalMessages = [...updatedMessages, coachMessage];
         setMessages(finalMessages);
-        await persistMessages(finalMessages);
+        await persistSession(finalMessages);
 
         // Extract and persist athlete insights for workout adaptability
         // Pass existing insights so active load adjustments carry forward across messages
@@ -370,13 +404,14 @@ export function ChatProvider({ children }) {
         };
         const finalMessages = [...updatedMessages, errorMessage];
         setMessages(finalMessages);
-        await persistMessages(finalMessages);
+        await persistSession(finalMessages);
       }
 
       setIsResponding(false);
     },
     [
       messages,
+      contextHistory,
       isResponding,
       athleteProfile,
       healthData,
@@ -397,14 +432,16 @@ export function ChatProvider({ children }) {
   async function clearConversation() {
     setMessages([]);
     try {
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      const today = new Date().toISOString().slice(0, 10);
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ date: today, messages: [] }));
     } catch (e) {
-      console.warn('Failed to clear chat history:', e);
+      console.warn('Failed to clear chat session:', e);
     }
   }
 
   const value = {
     messages,
+    contextHistory,
     isResponding,
     sendMessage,
     clearConversation,

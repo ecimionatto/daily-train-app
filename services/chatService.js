@@ -935,6 +935,143 @@ export function buildConversationSummary(messages) {
 }
 
 /**
+ * Extract key facts from a session's messages for tiered context history.
+ * Pure function — no AI calls, regex/string logic only.
+ *
+ * @param {Array} messages - Session messages array
+ * @param {string} date - Session date string (YYYY-MM-DD)
+ * @returns {{ date: string, keyFacts: string[], intents: string[], workoutPrescribed: string|null }}
+ */
+export function extractSessionFacts(messages, date) {
+  if (!messages || messages.length === 0) {
+    return { date: date || '', keyFacts: [], intents: [], workoutPrescribed: null };
+  }
+
+  const coachMessages = messages.filter((m) => m.role === 'coach');
+  const athleteMessages = messages.filter((m) => m.role === 'athlete');
+
+  // Extract key facts from all messages (coach + athlete combined)
+  const keyFacts = [];
+  const factPatterns = [
+    { pattern: /swap|swapped|switch|changed.*workout/i, label: 'workout swapped' },
+    { pattern: /load.*reduc|reduc.*load|easier|lighter/i, label: 'load reduced' },
+    { pattern: /load.*increas|push.*harder|more.*volume/i, label: 'load increased' },
+    {
+      pattern: /knee|shoulder|back|hip|ankle|hamstring|injury|pain|sore/i,
+      label: 'injury/pain mention',
+    },
+    { pattern: /tire|exhaust|fatigue|burnt? out/i, label: 'fatigue reported' },
+    { pattern: /race|event|sign.*up|register/i, label: 'race discussion' },
+    { pattern: /rest day|day off|recovery day/i, label: 'rest day requested' },
+  ];
+
+  const allMessages = [...coachMessages, ...athleteMessages];
+  for (const msg of allMessages) {
+    if (keyFacts.length >= 5) break;
+    for (const { pattern, label } of factPatterns) {
+      if (pattern.test(msg.content) && !keyFacts.includes(label)) {
+        keyFacts.push(label);
+        if (keyFacts.length >= 5) break;
+      }
+    }
+  }
+
+  // Extract unique intents from athlete messages using classifyMessage
+  const intentSet = new Set();
+  for (const msg of athleteMessages) {
+    const intent = classifyMessage(msg.content);
+    if (intent && intent !== 'general') {
+      intentSet.add(intent);
+    }
+  }
+  const intents = Array.from(intentSet);
+
+  // Find last workout prescription from coach messages (capped at 80 chars)
+  const lastPrescription = [...coachMessages]
+    .reverse()
+    .find((m) => isWorkoutPrescription(m.content));
+  let workoutPrescribed = null;
+  if (lastPrescription) {
+    workoutPrescribed =
+      lastPrescription.content.length > 80
+        ? `${lastPrescription.content.slice(0, 80)}…`
+        : lastPrescription.content;
+  }
+
+  return { date: date || '', keyFacts, intents, workoutPrescribed };
+}
+
+/**
+ * Build a compact tiered context string for the AI system prompt.
+ * Replaces buildConversationSummary for injection into the coach prompt.
+ *
+ * Tier 1: Last 5 exchanges (10 messages) verbatim from current session
+ * Tier 2: Last 7 historical sessions — compact facts
+ * Tier 3: Older sessions — single compressed background line
+ *
+ * @param {Array} currentMessages - Today's session messages
+ * @param {Array} contextHistory - Past session summaries from chatContextHistory
+ * @returns {string} Formatted context string for AI injection
+ */
+export function buildContextForAI(currentMessages, contextHistory) {
+  const parts = [];
+
+  // Tier 1: recent exchanges from current session (last 10 messages = 5 exchanges)
+  if (currentMessages && currentMessages.length > 0) {
+    const recentMessages = currentMessages.slice(-10);
+    const tier1Lines = ['RECENT EXCHANGES (today):'];
+    recentMessages.forEach((m) => {
+      const role = m.role === 'athlete' ? 'Athlete' : 'Coach';
+      const content = m.content.length > 120 ? `${m.content.slice(0, 120)}…` : m.content;
+      tier1Lines.push(`${role}: ${content}`);
+    });
+    parts.push(tier1Lines.join('\n'));
+
+    // Also pin last prescription from current session for coach consistency
+    const coachMessages = currentMessages.filter((m) => m.role === 'coach');
+    const lastPrescription = [...coachMessages]
+      .reverse()
+      .find((m) => isWorkoutPrescription(m.content));
+    if (lastPrescription) {
+      const capped =
+        lastPrescription.content.length > 250
+          ? `${lastPrescription.content.slice(0, 250)}…`
+          : lastPrescription.content;
+      parts.push(`LAST WORKOUT PRESCRIPTION (stay consistent with this): ${capped}`);
+    }
+  }
+
+  // Tier 2: last 7 historical sessions — compact facts per session
+  const history = contextHistory || [];
+  if (history.length > 0) {
+    const recentHistory = history.slice(0, 7);
+    const tier2Lines = ['RECENT HISTORY (last 7 days):'];
+    recentHistory.forEach((session) => {
+      const facts =
+        session.keyFacts && session.keyFacts.length > 0
+          ? session.keyFacts.join(', ')
+          : session.intents && session.intents.length > 0
+            ? session.intents.join(', ')
+            : 'general chat';
+      tier2Lines.push(`${session.date}: ${facts}`);
+    });
+    parts.push(tier2Lines.join('\n'));
+  }
+
+  // Tier 3: older sessions — compressed background from remaining history
+  if (history.length > 7) {
+    const olderHistory = history.slice(7);
+    const allOlderFacts = olderHistory.flatMap((s) => s.keyFacts || []);
+    const uniqueFacts = [...new Set(allOlderFacts)].slice(0, 5);
+    if (uniqueFacts.length > 0) {
+      parts.push(`BACKGROUND: ${uniqueFacts.join('; ')}`);
+    }
+  }
+
+  return parts.join('\n\n');
+}
+
+/**
  * Build the system prompt injected with full athlete context.
  */
 export function buildCoachSystemPrompt(context) {
