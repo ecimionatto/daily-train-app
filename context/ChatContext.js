@@ -57,11 +57,13 @@ export function ChatProvider({ children }) {
   );
 
   useEffect(() => {
-    migrateStaleGreetings().then(() => {
-      loadConversation();
-      checkGreetingStatus();
-      checkWeeklyReviewStatus();
-    });
+    migrateStaleGreetings()
+      .then(() => migrateNamedGreetings())
+      .then(() => {
+        loadConversation();
+        checkGreetingStatus();
+        checkWeeklyReviewStatus();
+      });
   }, []);
 
   // Proactive greeting trigger
@@ -108,6 +110,38 @@ export function ChatProvider({ children }) {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.log('[Chat] Migration failed:', e.message || e);
+    }
+  }
+
+  async function migrateNamedGreetings() {
+    const MIGRATION_KEY = 'chatMigration_v2_removeNamedGreetings';
+    try {
+      const migrated = await AsyncStorage.getItem(MIGRATION_KEY);
+      if (migrated) return;
+
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const msgs = JSON.parse(stored);
+        // Remove proactive greetings that address the athlete by name (e.g. "Hi Alex", "Hey Alex")
+        const cleaned = msgs.filter((msg) => {
+          if (!msg.metadata?.proactive) return true;
+          return !/\b(hi|hey|hello|good morning|morning|great job|well done),?\s+[A-Z][a-z]+\b/i.test(
+            msg.content
+          );
+        });
+        if (cleaned.length !== msgs.length) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+          await AsyncStorage.removeItem('lastGreetingDate');
+          // eslint-disable-next-line no-console
+          console.log(
+            `[Chat] v2 Migrated: removed ${msgs.length - cleaned.length} named proactive greetings`
+          );
+        }
+      }
+      await AsyncStorage.setItem(MIGRATION_KEY, 'done');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[Chat] v2 migration failed:', e.message || e);
     }
   }
 

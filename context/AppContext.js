@@ -185,6 +185,19 @@ export function AppProvider({ children }) {
       delete migrated.previousIronman;
       await saveProfile(migrated);
     }
+    // v2: clear cached workout so discipline enforcement fix takes effect
+    const WORKOUT_MIGRATION_KEY = 'appMigration_v2_clearDisciplineCache';
+    try {
+      const done = await AsyncStorage.getItem(WORKOUT_MIGRATION_KEY);
+      if (!done) {
+        await AsyncStorage.removeItem('todayWorkout');
+        await AsyncStorage.setItem(WORKOUT_MIGRATION_KEY, 'done');
+        // eslint-disable-next-line no-console
+        console.log('[AppContext] v2 migration: cleared stale todayWorkout cache');
+      }
+    } catch (e) {
+      console.warn('[AppContext] v2 migration failed:', e);
+    }
   }
 
   async function saveTodayWorkout(workout) {
