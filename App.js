@@ -50,7 +50,7 @@ function MainTabs() {
 }
 
 function AppNavigator() {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(null);
   const [checkingOnboarded, setCheckingOnboarded] = useState(false);
 
@@ -74,7 +74,7 @@ function AppNavigator() {
     }
   }
 
-  if (authLoading || checkingOnboarded) return null;
+  if (checkingOnboarded) return null;
 
   return (
     <NavigationContainer theme={NAV_THEME}>
@@ -95,15 +95,17 @@ function AppNavigator() {
 
 function AppLoader({ children }) {
   const { athleteProfile } = useApp();
+  const { loading: authLoading } = useAuth();
   const [appReady, setAppReady] = useState(false);
 
   useEffect(() => {
-    // Consider app ready once we've attempted to load profile (null or set)
-    if (athleteProfile !== undefined) {
+    // Wait for both auth and profile to settle so the correct screen
+    // is already rendered before the splash disappears.
+    if (athleteProfile !== undefined && !authLoading) {
       setAppReady(true);
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [athleteProfile]);
+  }, [athleteProfile, authLoading]);
 
   if (!appReady) {
     return (
