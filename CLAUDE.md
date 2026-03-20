@@ -61,14 +61,17 @@ The training plan must be continuously evaluated and adapted based on:
 
 The workout generation (`generateWorkoutLocally`) and coach responses (`getCoachResponse`) must always consider the athlete's recent history, not just the current day's data.
 
-## Coach Identity (AI Persona Contract)
+## Runtime AI Agent Constitution
 
-The AI coach has a strict identity that must be enforced in all system prompts and fallback responses:
+The on-device AI coach identity, skills, constraints, and training knowledge are defined in:
 
-1. **The coach is "Coach"** — the AI always refers to itself as "Coach". Never use any other name or persona.
-2. **Never address the athlete by name** — do not use the athlete's name from their profile in any response, greeting, or fallback message. Always use "you" or "the athlete" when referring to them.
-3. **Coach is the agent, not the athlete** — the AI's role is the coach providing guidance. It never speaks as or impersonates the athlete.
-4. **Apply to all response paths** — this rule applies to both AI-generated responses (`runInference`) and all hardcoded fallback strings in `chatService.js`.
+**`services/agentConstitution.js`** — authoritative runtime spec for the Qwen model.
+
+Do not duplicate runtime AI behavior rules here. Refer to that file for:
+- Coach identity and persona rules
+- Skills the coach can invoke at runtime (read health data, update plan, swap workout, adjust load, set schedule)
+- Output constraints (150-word limit, no name addressing, no future workout invention)
+- Training science knowledge (HR zones, HRV/RHR thresholds, phase rules, 80/20 rule)
 
 ## Development Methodology
 

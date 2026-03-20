@@ -226,7 +226,7 @@ export async function generateWorkoutLocally({
 
   const systemPrompt = `You are an elite ${coachType} coach. Generate a JSON workout.
 Respond ONLY with valid JSON matching this structure:
-{"title":"string","discipline":"${disciplines.join('|')}|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}`;
+{"title":"string","discipline":"${disciplines.join('|')}|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}${targetDiscipline ? `\nThe discipline MUST be exactly: "${targetDiscipline}". Do not change it.` : ''}`;
 
   const insights = profile.athleteInsights;
   const activeAdjustment =
@@ -261,7 +261,11 @@ Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' 
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
-      return sanitizeWorkout(JSON.parse(jsonStr));
+      const parsed = JSON.parse(jsonStr);
+      if (targetDiscipline && parsed.discipline !== targetDiscipline) {
+        parsed.discipline = targetDiscipline;
+      }
+      return sanitizeWorkout(parsed);
     }
   } catch (e) {
     if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;

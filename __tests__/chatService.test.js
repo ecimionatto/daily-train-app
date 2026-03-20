@@ -727,10 +727,11 @@ describe('buildCoachSystemPrompt - coach persona', () => {
     expect(prompt).toContain('80/20');
   });
 
-  it('omits COACHING KNOWLEDGE section when healthData is absent', () => {
+  it('always includes COACHING KNOWLEDGE from agent constitution', () => {
     const context = { athleteProfile: { raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
-    expect(prompt).not.toContain('COACHING KNOWLEDGE');
+    // COACHING KNOWLEDGE is now always injected from agentConstitution.js (static, not conditional on healthData)
+    expect(prompt).toContain('COACHING KNOWLEDGE');
   });
 });
 

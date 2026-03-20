@@ -2,6 +2,12 @@ import { runInference, getModelLoadingProgress } from './localModel';
 import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
 import { generateTrendSummary } from './trendAnalysis';
+import {
+  buildIdentitySection,
+  buildSkillsSection,
+  COACH_KNOWLEDGE,
+  COACH_CONSTRAINTS,
+} from './agentConstitution';
 
 const FATIGUE_KEYWORDS = [
   'tired',
@@ -950,10 +956,8 @@ export function buildCoachSystemPrompt(context) {
   const raceType = athleteProfile?.raceType || 'triathlon';
   const coachType = isRunningOnly(athleteProfile) ? 'running' : 'endurance triathlon';
 
-  sections.push(`You are an elite ${coachType} coach. Your identity is "Coach" — always refer to yourself as Coach.
-Never address the athlete by name. Refer to them as "you" or "the athlete".
-You are ONLY an ${coachType} coach. If the athlete asks about non-training topics, politely decline and redirect to training.
-When the athlete is struggling, encourage them but also offer to adjust the workout. Push them to follow their plan.`);
+  sections.push(buildIdentitySection(coachType));
+  sections.push(buildSkillsSection());
 
   sections.push(`ATHLETE PROFILE:
 - Race type: ${raceType}
@@ -1084,27 +1088,14 @@ When the athlete is struggling, encourage them but also offer to adjust the work
     sections.push(insightParts.join('\n'));
   }
 
-  // Expert coaching knowledge for evidence-based advice
-  if (healthData) {
-    sections.push(`COACHING KNOWLEDGE:
-HR ZONES: Z1<65%(recovery) Z2 65-75%(aerobic, 80% of volume) Z3 76-82%(tempo,≤1/wk) Z4 83-89%(threshold,readiness>70) Z5≥90%(VO2max,BUILD/PEAK only)
-HRV vs baseline: >+10%→upgrade | ±10%→execute | -5-10%→drop 1 zone | -10-15%→easy+20%shorter | >-15%+RHR↑→rest | 3+days declining→light week
-RHR above baseline: +3-5bpm→moderate only | +5-10bpm→no intensity | +10bpm→rest
-PHASES: BASE=80%Z2+volume(≤8%/wk) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
-TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
-LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest. 80/20 rule=80% of sessions must be easy Zone 1-2, only 20% hard Zone 3-5 — this is NOT about recovery vs training time.`);
-  }
+  // Coaching knowledge (from agentConstitution — always injected)
+  sections.push(`COACHING KNOWLEDGE:\n${COACH_KNOWLEDGE}`);
 
   if (conversationSummary) {
     sections.push(conversationSummary);
   }
 
-  sections.push(
-    `Keep responses under 150 words. Be encouraging but honest. Reference the athlete's specific data when relevant.
-PLAN ADAPTATION: The training plan is NOT fixed — it must adapt to the athlete's life, goals, and fitness. When the athlete reports a new race, changes a race date, wants to add a race, changes their goal distance, or requests any plan modification, CONFIRM the change and explain how their training will adapt. Never say the plan is finalized or cannot be changed.
-FUTURE WORKOUTS: You only know TODAY'S WORKOUT. NEVER invent or describe specific workouts for tomorrow or future days — future workouts are generated automatically based on recovery data. If asked about future days, say "tomorrow's workout will be generated based on your recovery" and do not speculate on what it will be.
-When you reference completion percentages or workout data, only use data from Apple Health — never fabricate statistics.`
-  );
+  sections.push(COACH_CONSTRAINTS);
 
   return sections.join('\n\n');
 }
@@ -1117,7 +1108,7 @@ export async function generateProactiveGreeting(context) {
   const { recentScore, todayWorkout, daysToRace, readinessScore, phase } = context;
   const yesterdayScore = recentScore?.find((d) => d.dateLabel === 'Yesterday') ?? null;
 
-  const systemPrompt = `You are an elite endurance coach. Your identity is "Coach" — sign off as Coach if needed. Never address the athlete by name or call them "Coach". Refer to them as "you".
+  const systemPrompt = `${buildIdentitySection('endurance triathlon')}
 Generate a brief, motivating morning message for your athlete.
 Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
 Keep it under 100 words. Be warm, specific, and push them to follow the plan. NEVER fabricate statistics or percentages — only reference data provided below.`;

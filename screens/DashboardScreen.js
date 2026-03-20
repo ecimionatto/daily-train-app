@@ -90,7 +90,10 @@ export default function DashboardScreen({ navigation }) {
         trends,
         targetDiscipline,
       };
-      const workout = await generateWorkoutLocally(params);
+      let workout = await generateWorkoutLocally(params);
+      if (targetDiscipline && workout.discipline !== targetDiscipline) {
+        workout = { ...workout, discipline: targetDiscipline };
+      }
       await saveTodayWorkout(workout);
 
       if (workout.discipline !== 'rest' || (readinessScore || 65) >= 55) {

@@ -34,9 +34,10 @@ describe('DashboardScreen', () => {
     fetchCompletedWorkouts.mockResolvedValue([]);
     generateWorkoutLocally.mockResolvedValue(mockWorkout);
     generateAlternativeWorkout.mockResolvedValue(mockAlternativeWorkout);
-    // Provide a default weekly plan so fetchWorkout can compute targetDiscipline
+    // Provide a weekly plan aligned with mockWorkout.discipline ('run') for every day
+    // so the discipline guard in DashboardScreen passes through without overwriting
     const { getWeeklyDisciplinePlan, analyzeRecentWorkouts } = require('../services/localModel');
-    getWeeklyDisciplinePlan.mockReturnValue(['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike']);
+    getWeeklyDisciplinePlan.mockReturnValue(['run', 'run', 'run', 'run', 'run', 'run', 'run']);
     if (analyzeRecentWorkouts) analyzeRecentWorkouts.mockResolvedValue(null);
   });
 
