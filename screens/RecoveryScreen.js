@@ -4,11 +4,13 @@ import { useApp } from '../context/AppContext';
 import { fetchHealthHistory } from '../services/healthKit';
 
 export default function RecoveryScreen() {
-  const { healthData, readinessScore } = useApp();
+  const { healthData, readinessScore, loadHealthData } = useApp();
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
+    loadHealthData();
     loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadHistory() {

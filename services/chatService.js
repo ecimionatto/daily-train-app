@@ -665,8 +665,7 @@ async function handleLoadAdjustment(userMessage, context) {
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
-  const name = athleteProfile.name ? `${athleteProfile.name}, ` : '';
-  return `Got it, ${name}I've ${changeDesc}. Your workouts will adapt automatically — listen to your body and let me know if you need further adjustments.`;
+  return `Got it. I've ${changeDesc}. Your workouts will adapt automatically — listen to your body and let me know if you need further adjustments.`;
 }
 
 /**
@@ -707,7 +706,6 @@ async function handleProfileChange(userMessage, context) {
 
   const dateMatch = parseRaceDateFromMessage(userMessage);
   const distanceMatch = parseRaceDistanceFromMessage(lower);
-  const name = athleteProfile?.name || 'Athlete';
 
   const updates = {};
   const confirmParts = [];
@@ -737,7 +735,7 @@ async function handleProfileChange(userMessage, context) {
     const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training phases and upcoming workouts will adapt, and encourage them. Keep it under 100 words.`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
-    return `Got it, ${name}! I've updated your ${confirmParts.join(' and ')}. Your training phases and workouts will adjust automatically — every session from here is tailored to your new target!`;
+    return `Got it! I've updated your ${confirmParts.join(' and ')}. Your training phases and workouts will adjust automatically — every session from here is tailored to your new target!`;
   }
 
   // No parseable update — pass to AI with explicit instruction to help
@@ -745,7 +743,7 @@ async function handleProfileChange(userMessage, context) {
   const prompt = `${userMessage}\n\n[The athlete wants to change their race or training goal. Help them update it. If they need to provide a date, ask for it specifically. DO NOT say the plan is finalized or cannot change.]`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
-  return `I want to update your plan, ${name}! Could you tell me the race date? For example: "My race is on September 28, 2026".`;
+  return `I want to update your plan! Could you tell me the race date? For example: "My race is on September 28, 2026".`;
 }
 
 const DISTANCE_ALIASES = [
@@ -952,10 +950,8 @@ export function buildCoachSystemPrompt(context) {
   const raceType = athleteProfile?.raceType || 'triathlon';
   const coachType = isRunningOnly(athleteProfile) ? 'running' : 'endurance triathlon';
 
-  const athleteName = athleteProfile?.name || null;
-  sections.push(`You are an elite ${coachType} coach. Address yourself as "Coach" and sign off as "Coach".
-You are coaching ${athleteName ? athleteName : 'the athlete'}.
-${athleteName ? `Always address the athlete as '${athleteName}'.` : ''}
+  sections.push(`You are an elite ${coachType} coach. Your identity is "Coach" — always refer to yourself as Coach.
+Never address the athlete by name. Refer to them as "you" or "the athlete".
 You are ONLY an ${coachType} coach. If the athlete asks about non-training topics, politely decline and redirect to training.
 When the athlete is struggling, encourage them but also offer to adjust the workout. Push them to follow their plan.`);
 
@@ -1003,6 +999,15 @@ When the athlete is struggling, encourage them but also offer to adjust the work
       : `${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min, ${todayWorkout.intensity})`
     : 'Not generated yet';
   sections.push(`TODAY'S WORKOUT: ${workoutInfo}`);
+
+  if (athleteProfile) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const weekPlan = getWeeklyDisciplinePlan(phase || 'BASE', athleteProfile);
+    const planLines = dayNames.map((day, i) => `  ${day}: ${weekPlan[i] || 'rest'}`);
+    sections.push(
+      `WEEKLY TRAINING PLAN (prescribed disciplines — never contradict this):\n${planLines.join('\n')}`
+    );
+  }
 
   if (workoutHistory && workoutHistory.length > 0) {
     // Exclude rest days — they add noise and have no meaningful metrics

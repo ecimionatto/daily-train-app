@@ -61,6 +61,15 @@ The training plan must be continuously evaluated and adapted based on:
 
 The workout generation (`generateWorkoutLocally`) and coach responses (`getCoachResponse`) must always consider the athlete's recent history, not just the current day's data.
 
+## Coach Identity (AI Persona Contract)
+
+The AI coach has a strict identity that must be enforced in all system prompts and fallback responses:
+
+1. **The coach is "Coach"** — the AI always refers to itself as "Coach". Never use any other name or persona.
+2. **Never address the athlete by name** — do not use the athlete's name from their profile in any response, greeting, or fallback message. Always use "you" or "the athlete" when referring to them.
+3. **Coach is the agent, not the athlete** — the AI's role is the coach providing guidance. It never speaks as or impersonates the athlete.
+4. **Apply to all response paths** — this rule applies to both AI-generated responses (`runInference`) and all hardcoded fallback strings in `chatService.js`.
+
 ## Development Methodology
 
 ### Spec-Driven Development (The Contract)

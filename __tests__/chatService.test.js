@@ -673,13 +673,14 @@ describe('buildCoachSystemPrompt - coach persona', () => {
     expect(prompt).toContain('Coach');
   });
 
-  it('addresses athlete by name when name is in profile', () => {
+  it('never addresses the athlete by name regardless of profile', () => {
     const context = { athleteProfile: { name: 'Sarah', raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
-    expect(prompt).toContain('Sarah');
+    expect(prompt).not.toContain('Sarah');
+    expect(prompt).toContain('Never address the athlete by name');
   });
 
-  it('falls back to coaching the athlete when no name in profile', () => {
+  it('refers to the athlete as "you" or "the athlete", never by name', () => {
     const context = { athleteProfile: { raceType: 'triathlon' } };
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('the athlete');
