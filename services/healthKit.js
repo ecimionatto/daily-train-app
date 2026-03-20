@@ -151,14 +151,16 @@ export async function fetchHealthHistory(days = 14) {
 
 function getRestingHeartRate() {
   return new Promise((resolve) => {
-    // RHR is a daily aggregate value written by Apple Watch, typically in the morning.
-    // Look back 7 days to catch readings when the watch wasn't worn for several nights.
+    // RHR is a daily aggregate value written by Apple Watch.
+    // Look back 30 days to maximise the chance of finding a recent reading.
     const options = {
-      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
     AppleHealthKit.getRestingHeartRate(options, (err, results) => {
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] RHR result:', err, results);
       if (err || !results?.value) {
         resolve(null);
       } else {
@@ -171,13 +173,15 @@ function getRestingHeartRate() {
 function getHRV() {
   return new Promise((resolve) => {
     // HRV is measured during sleep or rest by Apple Watch.
-    // Look back 7 days to cover nights where the watch wasn't worn.
+    // Look back 30 days to cover extended periods without overnight wear.
     const options = {
-      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
     AppleHealthKit.getHeartRateVariabilitySamples(options, (err, results) => {
+      // eslint-disable-next-line no-console
+      console.log('[HealthKit] HRV result:', err, results);
       if (err || !results?.length) {
         resolve(null);
       } else {

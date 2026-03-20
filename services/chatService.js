@@ -1117,7 +1117,8 @@ export async function generateProactiveGreeting(context) {
   const { recentScore, todayWorkout, daysToRace, readinessScore, phase } = context;
   const yesterdayScore = recentScore?.find((d) => d.dateLabel === 'Yesterday') ?? null;
 
-  const systemPrompt = `You are an elite endurance coach. Generate a brief, motivating morning message for your athlete.
+  const systemPrompt = `You are an elite endurance coach. Your identity is "Coach" — sign off as Coach if needed. Never address the athlete by name or call them "Coach". Refer to them as "you".
+Generate a brief, motivating morning message for your athlete.
 Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
 Keep it under 100 words. Be warm, specific, and push them to follow the plan. NEVER fabricate statistics or percentages — only reference data provided below.`;
 
