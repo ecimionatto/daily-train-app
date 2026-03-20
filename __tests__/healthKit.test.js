@@ -4,6 +4,7 @@ import {
   fetchCompletedWorkouts,
   calculatePace,
   calculateEffortScore,
+  deduplicateWorkouts,
 } from '../services/healthKit';
 
 describe('calculateReadiness', () => {
@@ -47,8 +48,8 @@ describe('mapWorkoutType', () => {
     expect(mapWorkoutType(37)).toBe('run');
   });
 
-  it('maps walking to walk', () => {
-    expect(mapWorkoutType(52)).toBe('walk');
+  it('maps walking to other (filtered out as non-triathlon)', () => {
+    expect(mapWorkoutType(52)).toBe('other');
   });
 
   it('maps functional strength to strength', () => {
@@ -196,11 +197,94 @@ describe('calculateEffortScore', () => {
     expect(max).toBeLessThanOrEqual(10);
   });
 
-  it('maps walking to walk not run', () => {
-    expect(mapWorkoutType(52)).toBe('walk');
+  it('maps walking to other (filtered out as non-triathlon)', () => {
+    expect(mapWorkoutType(52)).toBe('other');
   });
 
-  it('maps hiking to hike not run', () => {
-    expect(mapWorkoutType(35)).toBe('hike');
+  it('maps hiking to other (filtered out as non-triathlon)', () => {
+    expect(mapWorkoutType(35)).toBe('other');
+  });
+});
+
+describe('deduplicateWorkouts', () => {
+  const base = {
+    id: 'hk_1',
+    discipline: 'run',
+    startDate: '2026-03-18T07:00:00.000Z',
+    endDate: '2026-03-18T08:00:00.000Z',
+    durationMinutes: 60,
+    calories: 500,
+    avgHeartRate: 155,
+    maxHeartRate: 175,
+  };
+
+  it('returns single workout unchanged', () => {
+    const result = deduplicateWorkouts([base]);
+    expect(result).toHaveLength(1);
+    expect(result[0].discipline).toBe('run');
+  });
+
+  it('keeps workouts with different disciplines separate', () => {
+    const swim = { ...base, id: 'hk_2', discipline: 'swim' };
+    const result = deduplicateWorkouts([base, swim]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('keeps workouts on different days separate', () => {
+    const nextDay = {
+      ...base,
+      id: 'hk_2',
+      startDate: '2026-03-19T07:00:00.000Z',
+      endDate: '2026-03-19T08:00:00.000Z',
+    };
+    const result = deduplicateWorkouts([base, nextDay]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('merges duplicate workouts within 30min start and 3min duration', () => {
+    const dup = {
+      ...base,
+      id: 'hk_2',
+      startDate: '2026-03-18T07:10:00.000Z',
+      endDate: '2026-03-18T08:10:00.000Z',
+      durationMinutes: 60,
+      calories: 200,
+    };
+    const result = deduplicateWorkouts([base, dup]);
+    expect(result).toHaveLength(1);
+    expect(result[0].calories).toBe(700); // summed
+  });
+
+  it('keeps workouts with duration diff > 3min separate', () => {
+    const different = {
+      ...base,
+      id: 'hk_2',
+      durationMinutes: 65, // 5 min diff — should NOT merge
+    };
+    const result = deduplicateWorkouts([base, different]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('keeps start time earliest when merging', () => {
+    const later = {
+      ...base,
+      id: 'hk_2',
+      startDate: '2026-03-18T07:05:00.000Z',
+      endDate: '2026-03-18T08:05:00.000Z',
+    };
+    const result = deduplicateWorkouts([later, base]);
+    // base has earlier start (07:00), later has later start (07:05)
+    expect(result[0].startDate).toBe(base.startDate);
+  });
+
+  it('takes max heart rate when merging', () => {
+    const higher = { ...base, id: 'hk_2', avgHeartRate: 165, maxHeartRate: 185 };
+    const result = deduplicateWorkouts([base, higher]);
+    expect(result[0].avgHeartRate).toBe(165);
+    expect(result[0].maxHeartRate).toBe(185);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(deduplicateWorkouts([])).toEqual([]);
   });
 });

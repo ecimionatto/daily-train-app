@@ -34,6 +34,10 @@ describe('DashboardScreen', () => {
     fetchCompletedWorkouts.mockResolvedValue([]);
     generateWorkoutLocally.mockResolvedValue(mockWorkout);
     generateAlternativeWorkout.mockResolvedValue(mockAlternativeWorkout);
+    // Provide a default weekly plan so fetchWorkout can compute targetDiscipline
+    const { getWeeklyDisciplinePlan, analyzeRecentWorkouts } = require('../services/localModel');
+    getWeeklyDisciplinePlan.mockReturnValue(['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike']);
+    if (analyzeRecentWorkouts) analyzeRecentWorkouts.mockResolvedValue(null);
   });
 
   it('renders DailyTrain header', async () => {
@@ -148,7 +152,7 @@ describe('DashboardScreen', () => {
     });
   });
 
-  it('shows yesterday score when Apple Health has completed workouts', async () => {
+  it('shows previous sessions when Apple Health has completed workouts', async () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(7, 0, 0, 0);
@@ -174,7 +178,7 @@ describe('DashboardScreen', () => {
     });
 
     await waitFor(() => {
-      expect(getByText("YESTERDAY'S SESSION")).toBeTruthy();
+      expect(getByText('PREVIOUS SESSIONS')).toBeTruthy();
     });
   });
 });

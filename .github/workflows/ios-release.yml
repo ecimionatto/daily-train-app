@@ -1,0 +1,70 @@
+name: iOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: 'Fastlane lane to run'
+        required: true
+        default: 'beta'
+        type: choice
+        options:
+          - beta
+          - release
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Prebuild (Expo → native iOS)
+        run: LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
+
+      - name: Patch ExpoAppleAuthentication
+        # Add @unknown default to switch statements so Swift compiles cleanly
+        run: |
+          FILE="node_modules/expo-apple-authentication/ios/AppleAuthenticationUtils.swift"
+          if [ -f "$FILE" ]; then
+            # Insert @unknown default before closing braces of switch blocks missing it
+            sed -i '' '/^        }$/!b; /^        @unknown default/!{ /^        default/!{ s/^        }$/        @unknown default:\n            break\n        }/; }' "$FILE" || true
+          fi
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Build & upload
+        env:
+          APPLE_ID:             ${{ secrets.APPLE_ID }}
+          ITC_TEAM_ID:          ${{ secrets.ITC_TEAM_ID }}
+          ASC_KEY_ID:           ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID:        ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT:      ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_PASSWORD:       ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL:        ${{ secrets.MATCH_GIT_URL }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+        run: |
+          LANE="${{ github.event.inputs.lane || 'beta' }}"
+          cd ios && bundle exec fastlane $LANE

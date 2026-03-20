@@ -33,7 +33,7 @@ export function ChatProvider({ children }) {
     getTrainingPhase,
     getDaysToRace,
     todayWorkout,
-    yesterdayScore,
+    recentScore,
     overallReadiness,
     workoutHistory,
     swapTodayWorkout,
@@ -242,7 +242,7 @@ export function ChatProvider({ children }) {
       phase,
       daysToRace,
       todayWorkout,
-      yesterdayScore,
+      recentScore,
       overallReadiness,
       workoutHistory: (completedWorkouts?.length ? completedWorkouts : workoutHistory || []).slice(
         -14
@@ -281,7 +281,7 @@ export function ChatProvider({ children }) {
           phase,
           daysToRace,
           todayWorkout,
-          yesterdayScore,
+          recentScore,
           overallReadiness,
           workoutHistory: (completedWorkouts?.length
             ? completedWorkouts
@@ -348,7 +348,7 @@ export function ChatProvider({ children }) {
       healthData,
       readinessScore,
       todayWorkout,
-      yesterdayScore,
+      recentScore,
       overallReadiness,
       workoutHistory,
       completedWorkouts,

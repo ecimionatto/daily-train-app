@@ -1,8 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+  Alert,
+} from 'react-native';
 import { useApp } from '../context/AppContext';
 import { useChat } from '../context/ChatContext';
-import { generateWorkoutLocally, generateAlternativeWorkout } from '../services/localModel';
+import {
+  generateWorkoutLocally,
+  generateAlternativeWorkout,
+  analyzeRecentWorkouts,
+  getWeeklyDisciplinePlan,
+} from '../services/localModel';
 
 export default function DashboardScreen({ navigation }) {
   const {
@@ -16,7 +29,7 @@ export default function DashboardScreen({ navigation }) {
     getDaysToRace,
     alternativeWorkout,
     saveAlternativeWorkout,
-    yesterdayScore,
+    recentScore,
     overallReadiness,
     swapTodayWorkout,
     completedWorkouts,
@@ -24,6 +37,12 @@ export default function DashboardScreen({ navigation }) {
     todayWorkoutStatus,
     todayMatchedWorkout,
     trends,
+    tomorrowWorkout,
+    tomorrowAlternatives,
+    tomorrowAlternativeIndex,
+    generatingTomorrow,
+    generateAndSaveTomorrow,
+    rotateTomorrowWorkout,
   } = useApp();
 
   const { messages } = useChat();
@@ -31,6 +50,7 @@ export default function DashboardScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showAltDetails, setShowAltDetails] = useState(false);
+  const [aiInsight, setAiInsight] = useState(null);
 
   const daysToRace = getDaysToRace();
   const phase = getTrainingPhase();
@@ -43,9 +63,23 @@ export default function DashboardScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthData, athleteProfile]);
 
+  useEffect(() => {
+    if (recentScore && recentScore.length > 0) {
+      analyzeRecentWorkouts(recentScore, healthData)
+        .then((insight) => {
+          if (insight) setAiInsight(insight);
+        })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentScore]);
+
   async function fetchWorkout() {
     setLoading(true);
     try {
+      const todayDay = new Date().getDay();
+      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
+      const targetDiscipline = weekPlan[todayDay];
       const params = {
         profile: athleteProfile,
         healthData,
@@ -54,6 +88,7 @@ export default function DashboardScreen({ navigation }) {
         daysToRace,
         completedWorkouts,
         trends,
+        targetDiscipline,
       };
       const workout = await generateWorkoutLocally(params);
       await saveTodayWorkout(workout);
@@ -81,6 +116,21 @@ export default function DashboardScreen({ navigation }) {
     setRefreshing(true);
     await loadCompletedWorkouts();
     setRefreshing(false);
+  }
+
+  function handleGenerateTomorrow() {
+    if (todayWorkoutStatus !== 'completed') {
+      Alert.alert(
+        "Today's session isn't done yet",
+        "Generating tomorrow's workout now may affect your training plan. Continue?",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Generate', onPress: generateAndSaveTomorrow },
+        ]
+      );
+    } else {
+      generateAndSaveTomorrow();
+    }
   }
 
   async function handleSwitchWorkout() {
@@ -153,53 +203,54 @@ export default function DashboardScreen({ navigation }) {
             </View>
           )}
 
-          {healthData && (
-            <View style={styles.metricsRow}>
-              <View style={styles.metric}>
-                <Text style={styles.metricValue}>{healthData.restingHR || '--'}</Text>
-                <Text style={styles.metricLabel}>RHR</Text>
-              </View>
-              <View style={styles.metric}>
-                <Text style={styles.metricValue}>{healthData.hrv || '--'}</Text>
-                <Text style={styles.metricLabel}>HRV</Text>
-              </View>
-              <View style={styles.metric}>
-                <Text style={styles.metricValue}>{healthData.sleepHours?.toFixed(1) || '--'}</Text>
-                <Text style={styles.metricLabel}>SLEEP</Text>
-              </View>
+          <View style={styles.metricsRow}>
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>{healthData?.restingHR ?? '--'}</Text>
+              <Text style={styles.metricLabel}>RHR</Text>
             </View>
-          )}
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>{healthData?.hrv ?? '--'}</Text>
+              <Text style={styles.metricLabel}>HRV</Text>
+            </View>
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>{healthData?.sleepHours?.toFixed(1) ?? '--'}</Text>
+              <Text style={styles.metricLabel}>SLEEP</Text>
+            </View>
+          </View>
         </View>
       )}
 
-      {/* Yesterday's Score */}
-      {yesterdayScore && (
+      {/* Previous Sessions (last 3 days + today) */}
+      {recentScore && recentScore.length > 0 && (
         <View style={styles.yesterdayCard}>
-          <Text style={styles.sectionTitle}>{"YESTERDAY'S SESSION"}</Text>
-          {yesterdayScore.prescribedDiscipline && (
-            <Text style={styles.prescribedText}>
-              Prescribed: {yesterdayScore.prescribedDiscipline?.charAt(0).toUpperCase()}
-              {yesterdayScore.prescribedDiscipline?.slice(1)} {yesterdayScore.prescribedDuration}min
-            </Text>
-          )}
-          <View style={styles.yesterdayRow}>
-            <Text
-              style={[
-                styles.yesterdayScore,
-                { color: getScoreColor(yesterdayScore.completionScore) },
-              ]}
-            >
-              {yesterdayScore.completionScore}%
-            </Text>
-            <View style={styles.yesterdayInfo}>
-              <Text style={styles.yesterdayLabel}>{yesterdayScore.feedback?.label}</Text>
-              {(yesterdayScore.allWorkouts || [yesterdayScore.completedWorkout]).map((w, i) => (
-                <Text key={i} style={styles.yesterdayDetail}>
-                  {w?.title} — {w?.discipline} · {w?.duration}min
+          <Text style={styles.sectionTitle}>PREVIOUS SESSIONS</Text>
+          {recentScore.map((day, di) => (
+            <View key={di} style={di > 0 ? styles.dayDivider : null}>
+              <Text style={styles.dayLabel}>{day.dateLabel.toUpperCase()}</Text>
+              {day.prescribedDiscipline && (
+                <Text style={styles.prescribedText}>
+                  Prescribed: {day.prescribedDiscipline.charAt(0).toUpperCase()}
+                  {day.prescribedDiscipline.slice(1)} {day.prescribedDuration}min
                 </Text>
-              ))}
+              )}
+              <View style={styles.yesterdayRow}>
+                <Text
+                  style={[styles.yesterdayScore, { color: getScoreColor(day.completionScore) }]}
+                >
+                  {day.completionScore}%
+                </Text>
+                <View style={styles.yesterdayInfo}>
+                  <Text style={styles.yesterdayLabel}>{day.feedback?.label}</Text>
+                  {day.workouts.map((w, i) => (
+                    <Text key={i} style={styles.yesterdayDetail}>
+                      {w?.title} — {w?.discipline} · {w?.duration}min
+                    </Text>
+                  ))}
+                </View>
+              </View>
             </View>
-          </View>
+          ))}
+          {aiInsight && <Text style={styles.aiInsightText}>💡 {aiInsight}</Text>}
         </View>
       )}
 
@@ -257,6 +308,43 @@ export default function DashboardScreen({ navigation }) {
         ) : (
           <TouchableOpacity style={styles.generateButton} onPress={fetchWorkout}>
             <Text style={styles.generateButtonText}>GENERATE WORKOUT</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Tomorrow's Session */}
+      <View style={styles.tomorrowCard}>
+        <Text style={styles.sectionTitle}>{"TOMORROW'S SESSION"}</Text>
+        {tomorrowWorkout ? (
+          <>
+            <Text style={styles.workoutTitle}>{tomorrowWorkout.title}</Text>
+            <View style={styles.workoutMeta}>
+              <Text style={styles.workoutDiscipline}>
+                {tomorrowWorkout.discipline?.toUpperCase()}
+              </Text>
+              <Text style={styles.workoutDuration}>{tomorrowWorkout.duration} min</Text>
+              <Text style={styles.workoutIntensity}>
+                {tomorrowWorkout.intensity?.toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.workoutDescription}>{tomorrowWorkout.summary}</Text>
+            {tomorrowAlternatives.length > 1 && (
+              <TouchableOpacity style={styles.rotateButton} onPress={rotateTomorrowWorkout}>
+                <Text style={styles.rotateButtonText}>
+                  ↺ ROTATE ({tomorrowAlternativeIndex + 1}/{tomorrowAlternatives.length})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <TouchableOpacity
+            style={styles.generateButton}
+            onPress={handleGenerateTomorrow}
+            disabled={generatingTomorrow}
+          >
+            <Text style={styles.generateButtonText}>
+              {generatingTomorrow ? 'GENERATING...' : 'GENERATE TOMORROW'}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -538,6 +626,53 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
+  },
+  dayLabel: {
+    color: '#e8ff47',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  dayDivider: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a3e',
+  },
+  aiInsightText: {
+    color: '#aaa',
+    fontSize: 13,
+    lineHeight: 19,
+    fontStyle: 'italic',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a3e',
+  },
+  tomorrowCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#47b8ff',
+  },
+  rotateButton: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#47b8ff',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
+  },
+  rotateButtonText: {
+    color: '#47b8ff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   yesterdayRow: {
     flexDirection: 'row',

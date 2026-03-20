@@ -700,12 +700,13 @@ export function getWeeklyDisciplinePlan(phase, profile) {
   }
   const weak = profile.weakestDiscipline?.toLowerCase() || 'swim';
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+  // Default: Mon=rest, Sat/Sun=long endurance sessions
   const plans = {
-    BASE: ['rest', 'swim', 'bike', 'run', 'swim', 'strength', 'bike'],
-    BUILD: ['rest', 'swim', 'bike', 'run', 'swim', 'bike', 'run'],
-    PEAK: ['rest', weak, 'bike', 'run', 'swim', 'bike', 'run'],
-    TAPER: ['rest', 'swim', 'bike', 'run', 'rest', 'swim', 'bike'],
-    RACE_WEEK: ['rest', 'swim', 'bike', 'run', 'rest', 'rest', 'rest'],
+    BASE: ['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike'],
+    BUILD: ['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike'],
+    PEAK: ['run', 'rest', weak, 'bike', 'run', 'swim', 'bike'],
+    TAPER: ['bike', 'rest', 'swim', 'bike', 'run', 'rest', 'run'],
+    RACE_WEEK: ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
   };
   const basePlan = plans[phase] || plans.BASE;
   return applySchedulePreferences(basePlan, profile, 'bike');
@@ -785,12 +786,13 @@ function applySchedulePreferences(plan, profile, longDiscipline) {
 
 function getRunningWeekPlan(phase) {
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+  // Default: Mon=rest, Sat/Sun=long runs
   const plans = {
-    BASE: ['rest', 'run', 'strength', 'run', 'rest', 'run', 'run'],
-    BUILD: ['rest', 'run', 'run', 'strength', 'run', 'rest', 'run'],
-    PEAK: ['rest', 'run', 'run', 'run', 'strength', 'rest', 'run'],
-    TAPER: ['rest', 'run', 'rest', 'run', 'rest', 'run', 'rest'],
-    RACE_WEEK: ['rest', 'run', 'rest', 'run', 'rest', 'rest', 'rest'],
+    BASE: ['run', 'rest', 'strength', 'run', 'run', 'run', 'run'],
+    BUILD: ['run', 'rest', 'run', 'strength', 'run', 'run', 'run'],
+    PEAK: ['run', 'rest', 'run', 'run', 'strength', 'run', 'run'],
+    TAPER: ['run', 'rest', 'run', 'rest', 'run', 'run', 'rest'],
+    RACE_WEEK: ['rest', 'rest', 'run', 'rest', 'run', 'rest', 'rest'],
   };
   return plans[phase] || plans.BASE;
 }
@@ -1008,4 +1010,43 @@ function buildWorkout(discipline, duration, readiness, _phase, _profile) {
   };
 
   return workouts[discipline] || workouts.rest;
+}
+
+/**
+ * Analyze recent workout sessions using a focused minimal prompt.
+ * Returns 2-3 sentences of actionable coach feedback.
+ * Uses a short context window to avoid ContextFullError on device.
+ */
+export async function analyzeRecentWorkouts(recentDays, healthData) {
+  if (!recentDays || recentDays.length === 0) return null;
+
+  const sessionLines = recentDays
+    .flatMap(({ dateLabel, workouts }) =>
+      workouts.map(
+        (w) =>
+          `- ${w.discipline || w.discipline}, ${w.duration || w.durationMinutes}min${w.avgHeartRate ? `, avg ${w.avgHeartRate}bpm` : ''}${w.effortScore ? `, effort ${w.effortScore}/10` : ''} (${dateLabel})`
+      )
+    )
+    .join('\n');
+
+  const healthLine = healthData
+    ? `Health: RHR ${healthData.restingHR ?? 'N/A'}bpm, HRV ${healthData.hrv ?? 'N/A'}ms, sleep ${healthData.sleepHours?.toFixed(1) ?? 'N/A'}h`
+    : '';
+
+  const systemPrompt = `You are a triathlon coach. Analyze the athlete's recent sessions and give 2-3 sentences of specific, actionable feedback about patterns, recovery, or focus areas. Be direct and practical.`;
+
+  const userPrompt = `Recent sessions:\n${sessionLines}${healthLine ? `\n${healthLine}` : ''}`;
+
+  try {
+    const response = await runInference(systemPrompt, userPrompt);
+    if (response) return response.trim();
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;
+  }
+
+  // Rule-based fallback
+  const disciplines = [...new Set(recentDays.flatMap((d) => d.workouts.map((w) => w.discipline)))];
+  const totalSessions = recentDays.reduce((sum, d) => sum + d.workouts.length, 0);
+  if (totalSessions === 0) return 'No recent sessions recorded.';
+  return `You completed ${totalSessions} session${totalSessions > 1 ? 's' : ''} recently across ${disciplines.join(', ')}. Keep the consistency going — recovery and sleep are key between sessions.`;
 }

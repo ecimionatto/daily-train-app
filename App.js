@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { StatusBar } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { StatusBar, View, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SplashScreen from 'expo-splash-screen';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AppProvider } from './context/AppContext';
+import { AppProvider, useApp } from './context/AppContext';
+
+SplashScreen.preventAutoHideAsync();
 import LoginScreen from './screens/LoginScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import DashboardScreen from './screens/DashboardScreen';
@@ -49,23 +52,29 @@ function MainTabs() {
 function AppNavigator() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [isOnboarded, setIsOnboarded] = useState(null);
+  const [checkingOnboarded, setCheckingOnboarded] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
       checkOnboarding();
+    } else {
+      setIsOnboarded(null);
     }
   }, [isAuthenticated]);
 
   async function checkOnboarding() {
+    setCheckingOnboarded(true);
     try {
       const profile = await AsyncStorage.getItem('athleteProfile');
       setIsOnboarded(!!profile);
     } catch {
       setIsOnboarded(false);
+    } finally {
+      setCheckingOnboarded(false);
     }
   }
 
-  if (authLoading) return null;
+  if (authLoading || checkingOnboarded) return null;
 
   return (
     <NavigationContainer theme={NAV_THEME}>
@@ -84,13 +93,65 @@ function AppNavigator() {
   );
 }
 
+function AppLoader({ children }) {
+  const { athleteProfile } = useApp();
+  const [appReady, setAppReady] = useState(false);
+
+  useEffect(() => {
+    // Consider app ready once we've attempted to load profile (null or set)
+    if (athleteProfile !== undefined) {
+      setAppReady(true);
+    }
+  }, [athleteProfile]);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (appReady) {
+      await SplashScreen.hideAsync();
+    }
+  }, [appReady]);
+
+  if (!appReady) {
+    return (
+      <View style={splashStyles.container}>
+        <Image source={require('./assets/icon.png')} style={splashStyles.logo} />
+        <ActivityIndicator color="#e8ff47" size="small" style={splashStyles.spinner} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      {children}
+    </View>
+  );
+}
+
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0a0f',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logo: {
+    width: 160,
+    height: 160,
+    resizeMode: 'contain',
+  },
+  spinner: {
+    marginTop: 24,
+  },
+});
+
 export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
         <ChatProvider>
           <StatusBar barStyle="light-content" />
-          <AppNavigator />
+          <AppLoader>
+            <AppNavigator />
+          </AppLoader>
         </ChatProvider>
       </AppProvider>
     </AuthProvider>

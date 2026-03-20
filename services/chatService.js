@@ -485,11 +485,14 @@ function parseDaysFromMessage(message) {
 }
 
 /**
- * Detect the intent type from a schedule preference message.
- * Returns 'longDays', 'restDays', or 'avoidDays'.
+ * Detect ALL schedule preference intents in a message.
+ * Returns an object with any combination of restDays, longDays, avoidDays.
  */
-function parseScheduleIntent(message) {
+function parseAllScheduleIntents(message) {
   const lower = message.toLowerCase();
+  const days = parseDaysFromMessage(message);
+  const intents = {};
+
   const restKeywords = [
     'rest on',
     'day off',
@@ -499,18 +502,40 @@ function parseScheduleIntent(message) {
     'move rest',
     'change rest',
   ];
-  if (restKeywords.some((kw) => lower.includes(kw))) return 'restDays';
+  if (restKeywords.some((kw) => lower.includes(kw))) {
+    intents.restDays = days;
+  }
+
+  const longKeywords = [
+    'long session',
+    'long run',
+    'long ride',
+    'long swim',
+    'endurance on',
+    'prefer weekend',
+    'long on',
+    'long workout',
+  ];
+  if (longKeywords.some((kw) => lower.includes(kw))) {
+    intents.longDays = days;
+  }
 
   const avoidKeywords = ['avoid', 'skip', 'no workout', 'free on'];
-  if (avoidKeywords.some((kw) => lower.includes(kw))) return 'avoidDays';
+  if (avoidKeywords.some((kw) => lower.includes(kw))) {
+    intents.avoidDays = days;
+  }
 
-  // Default to longDays for "long sessions on...", "prefer weekends", etc.
-  return 'longDays';
+  // Default to longDays if nothing detected
+  if (Object.keys(intents).length === 0) {
+    intents.longDays = days;
+  }
+
+  return intents;
 }
 
 /**
  * Handle a schedule preference change from the coach chat.
- * Parses day preferences and persists them to the athlete profile.
+ * Parses all day/intent combinations and persists them to the athlete profile.
  */
 async function handleSchedulePreference(userMessage, context) {
   const { athleteProfile, onProfileUpdate } = context;
@@ -524,39 +549,40 @@ async function handleSchedulePreference(userMessage, context) {
     const prompt = `${userMessage}\n\n[The athlete is trying to change their schedule preference but the specific days are unclear. Ask them to clarify which days, and give examples based on their current plan. Keep it under 80 words.]`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
-    return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Friday'.`;
+    return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Monday'.`;
   }
 
-  const intent = parseScheduleIntent(userMessage);
+  // Apply all detected intents in a single profile update
+  const intents = parseAllScheduleIntents(userMessage);
   const existing = athleteProfile.schedulePreferences || {};
   const updated = {
     ...athleteProfile,
     schedulePreferences: {
       ...existing,
-      [intent]: days,
+      ...intents,
     },
   };
 
   await onProfileUpdate(updated);
 
-  const dayList = days.map((d) => dayNames[d]).join(' and ');
-  const changeDesc = {
-    longDays: `long sessions scheduled on ${dayList}`,
-    restDays: `${dayList} set as rest days`,
-    avoidDays: `${dayList} marked as no-training days`,
-  }[intent];
+  const changeDescs = Object.entries(intents)
+    .map(([intent, intentDays]) => {
+      const dayList = intentDays.map((d) => dayNames[d]).join(' and ');
+      return {
+        longDays: `long sessions on ${dayList}`,
+        restDays: `${dayList} as rest day${intentDays.length > 1 ? 's' : ''}`,
+        avoidDays: `${dayList} as no-training day${intentDays.length > 1 ? 's' : ''}`,
+      }[intent];
+    })
+    .filter(Boolean);
 
+  const changeSummary = changeDescs.join(', and ');
   const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
-  const prompt = `I just updated the athlete's schedule: ${changeDesc}. Confirm this warmly, briefly explain how their weekly plan will adapt, and keep it under 80 words.`;
+  const prompt = `I just updated the athlete's schedule: ${changeSummary}. Confirm this warmly, briefly explain how their weekly plan will adapt, and keep it under 80 words.`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
-  const fallbacks = {
-    longDays: `Done! Long sessions are now on ${dayList}. Your plan will place bike and endurance sessions there going forward.`,
-    restDays: `Got it! ${dayList} ${days.length > 1 ? 'are' : 'is'} now rest days. Training will be balanced across the remaining days.`,
-    avoidDays: `Noted! I'll keep ${dayList} training-free and redistribute workouts to your other days.`,
-  };
-  return fallbacks[intent];
+  return `Done! Updated your schedule: ${changeSummary}. Training will be balanced across the remaining days going forward.`;
 }
 
 /**
@@ -915,7 +941,7 @@ export function buildCoachSystemPrompt(context) {
     phase,
     daysToRace,
     todayWorkout,
-    yesterdayScore,
+    recentScore,
     overallReadiness,
     workoutHistory,
     conversationSummary,
@@ -959,18 +985,16 @@ When the athlete is struggling, encourage them but also offer to adjust the work
 - Race preparation: ${overallReadiness.racePrep}/100`);
   }
 
-  if (yesterdayScore) {
-    const prescribed = yesterdayScore.prescribedDiscipline
-      ? `${yesterdayScore.prescribedDiscipline} ${yesterdayScore.prescribedDuration}min`
-      : 'N/A';
-    const actual =
-      yesterdayScore.allWorkouts?.map((w) => `${w.discipline} ${w.duration}min`).join(', ') ||
-      'none';
-    sections.push(`YESTERDAY'S PERFORMANCE:
-- Prescribed: ${prescribed}
-- Actual: ${actual}
-- Compliance: ${yesterdayScore.completionScore ?? 'N/A'}%
-- Feedback: ${yesterdayScore.feedback?.label || 'N/A'}`);
+  if (recentScore && recentScore.length > 0) {
+    const lines = recentScore.map((day) => {
+      const prescribed = day.prescribedDiscipline
+        ? `${day.prescribedDiscipline} ${day.prescribedDuration}min`
+        : 'N/A';
+      const actual =
+        day.workouts?.map((w) => `${w.discipline} ${w.duration}min`).join(', ') || 'none';
+      return `  ${day.dateLabel}: prescribed ${prescribed}, actual: ${actual}, compliance ${day.completionScore ?? 'N/A'}%`;
+    });
+    sections.push(`RECENT SESSIONS (last 3 days including today):\n${lines.join('\n')}`);
   }
 
   const workoutInfo = todayWorkout
@@ -1085,7 +1109,8 @@ When you reference completion percentages or workout data, only use data from Ap
  * Tries AI model first, falls back to rule-based.
  */
 export async function generateProactiveGreeting(context) {
-  const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+  const { recentScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+  const yesterdayScore = recentScore?.find((d) => d.dateLabel === 'Yesterday') ?? null;
 
   const systemPrompt = `You are an elite endurance coach. Generate a brief, motivating morning message for your athlete.
 Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
@@ -1116,7 +1141,8 @@ Keep it under 100 words. Be warm, specific, and push them to follow the plan. NE
  * Rule-based proactive greeting.
  */
 export function generateFallbackGreeting(context) {
-  const { yesterdayScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+  const { recentScore, todayWorkout, daysToRace, readinessScore, phase } = context;
+  const yesterdayScore = recentScore?.find((d) => d.dateLabel === 'Yesterday') ?? null;
   const parts = [];
 
   // Yesterday feedback
@@ -1517,10 +1543,11 @@ export function generateFallbackResponse(category, _userMessage, context) {
     daysToRace,
     healthData,
     todayWorkout,
-    yesterdayScore,
+    recentScore,
     overallReadiness,
     workoutHistory,
   } = context;
+  const yesterdayScore = recentScore?.find((d) => d.dateLabel === 'Yesterday') ?? null;
   const score = readinessScore || 65;
   const phaseLabels = {
     BASE: 'base building',
@@ -1570,7 +1597,7 @@ function buildCompletedWorkoutResponse(workoutHistory, yesterdayScore) {
 
   // Yesterday's specific data
   if (yesterdayScore) {
-    const allWorkouts = yesterdayScore.allWorkouts || [yesterdayScore.completedWorkout];
+    const allWorkouts = yesterdayScore.workouts || [];
     if (allWorkouts.length === 1) {
       const w = allWorkouts[0];
       parts.push(

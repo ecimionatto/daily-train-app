@@ -5,6 +5,7 @@ import {
   generateReplacementWorkout,
   generateWeeklyPlanAdjustment,
   getWeeklyDisciplinePlan,
+  analyzeRecentWorkouts,
 } from '../services/localModel';
 
 jest.mock('../services/healthKit');
@@ -372,7 +373,8 @@ describe('generateWorkoutLocally with running profile', () => {
 describe('getWeeklyDisciplinePlan with schedule preferences', () => {
   it('returns default plan when no preferences set', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
-    expect(plan).toEqual(['rest', 'swim', 'bike', 'run', 'swim', 'strength', 'bike']);
+    // Default: rest on Monday (index 1), long sessions on weekend
+    expect(plan).toEqual(['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike']);
   });
 
   it('moves bike to weekend when longDays set to Saturday and Sunday', () => {
@@ -628,5 +630,57 @@ describe('generateWorkoutLocally - load adjustment from coach conversation', () 
     if (workout.discipline !== 'rest') {
       expect(workout.intensity).toBe('hard');
     }
+  });
+});
+
+describe('analyzeRecentWorkouts', () => {
+  it('returns null when recentDays is empty', async () => {
+    const result = await analyzeRecentWorkouts([], null);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when recentDays is null', async () => {
+    const result = await analyzeRecentWorkouts(null, null);
+    expect(result).toBeNull();
+  });
+
+  it('returns rule-based fallback when model is not ready', async () => {
+    const recentDays = [
+      {
+        dateLabel: 'Yesterday',
+        workouts: [{ discipline: 'run', durationMinutes: 45, avgHeartRate: 158, effortScore: 7 }],
+      },
+      {
+        dateLabel: '2 days ago',
+        workouts: [{ discipline: 'bike', durationMinutes: 60, avgHeartRate: 145, effortScore: 6 }],
+      },
+    ];
+    const result = await analyzeRecentWorkouts(recentDays, null);
+    // Model mock returns undefined (not ready), so rule-based fallback kicks in
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('includes discipline info in fallback', async () => {
+    const recentDays = [
+      {
+        dateLabel: 'Yesterday',
+        workouts: [{ discipline: 'swim', durationMinutes: 40 }],
+      },
+    ];
+    const result = await analyzeRecentWorkouts(recentDays, null);
+    expect(result).toContain('swim');
+  });
+
+  it('handles healthData in context', async () => {
+    const recentDays = [
+      {
+        dateLabel: 'Yesterday',
+        workouts: [{ discipline: 'run', durationMinutes: 50, avgHeartRate: 160 }],
+      },
+    ];
+    const healthData = { restingHR: 55, hrv: 42, sleepHours: 7.5 };
+    const result = await analyzeRecentWorkouts(recentDays, healthData);
+    expect(typeof result).toBe('string');
   });
 });

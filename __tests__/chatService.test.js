@@ -188,10 +188,14 @@ describe('buildConversationSummary', () => {
 describe('generateFallbackGreeting', () => {
   it('includes yesterday score when available', () => {
     const context = {
-      yesterdayScore: {
-        completionScore: 85,
-        feedback: { label: 'Solid session', message: 'Good work.' },
-      },
+      recentScore: [
+        {
+          dateLabel: 'Yesterday',
+          completionScore: 85,
+          feedback: { label: 'Solid session', message: 'Good work.' },
+          workouts: [],
+        },
+      ],
       todayWorkout: { title: 'Tempo Run', discipline: 'run', duration: 60 },
       daysToRace: 45,
       readinessScore: 72,
@@ -203,7 +207,7 @@ describe('generateFallbackGreeting', () => {
 
   it('includes today workout info', () => {
     const context = {
-      yesterdayScore: null,
+      recentScore: null,
       todayWorkout: { title: 'Zone 2 Ride', discipline: 'bike', duration: 70 },
       daysToRace: 45,
       readinessScore: 72,
@@ -215,7 +219,7 @@ describe('generateFallbackGreeting', () => {
 
   it('includes race countdown', () => {
     const context = {
-      yesterdayScore: null,
+      recentScore: null,
       todayWorkout: null,
       daysToRace: 30,
       readinessScore: 72,
@@ -258,10 +262,14 @@ describe('generateFallbackResponse', () => {
         },
       ],
     },
-    yesterdayScore: {
-      completionScore: 85,
-      feedback: { label: 'Solid session', message: 'Good execution.' },
-    },
+    recentScore: [
+      {
+        dateLabel: 'Yesterday',
+        completionScore: 85,
+        feedback: { label: 'Solid session', message: 'Good execution.' },
+        workouts: [],
+      },
+    ],
     overallReadiness: { overall: 72, health: 75, compliance: 70, racePrep: 68 },
     workoutHistory: [
       { discipline: 'run', title: 'Easy Run', completedSets: 4, totalSets: 4 },
@@ -358,11 +366,14 @@ describe('generateFallbackResponse', () => {
   it('lists completed workouts when asked about history', () => {
     const ctxWithHistory = {
       ...context,
-      yesterdayScore: {
-        completionScore: 82,
-        feedback: { label: 'Solid session', message: 'Good effort!' },
-        completedWorkout: { discipline: 'run', duration: 48, title: 'Easy Run' },
-      },
+      recentScore: [
+        {
+          dateLabel: 'Yesterday',
+          completionScore: 82,
+          feedback: { label: 'Solid session', message: 'Good effort!' },
+          workouts: [{ discipline: 'run', duration: 48, title: 'Easy Run' }],
+        },
+      ],
       workoutHistory: [
         { discipline: 'swim', durationMinutes: 45, startDate: '2026-03-09T06:00:00Z' },
         { discipline: 'run', durationMinutes: 48, startDate: '2026-03-10T07:00:00Z' },
@@ -378,7 +389,7 @@ describe('generateFallbackResponse', () => {
   });
 
   it('handles no completed workout data gracefully', () => {
-    const emptyCtx = { ...context, yesterdayScore: null, workoutHistory: [] };
+    const emptyCtx = { ...context, recentScore: null, workoutHistory: [] };
     const response = generateFallbackResponse('completed_workout', 'what did I do', emptyCtx);
     expect(response).toContain("don't have");
   });
@@ -444,10 +455,18 @@ describe('buildCoachSystemPrompt', () => {
   it('includes yesterday score when provided', () => {
     const context = {
       athleteProfile: {},
-      yesterdayScore: { completionScore: 80, feedback: { label: 'Solid session' } },
+      recentScore: [
+        {
+          dateLabel: 'Yesterday',
+          completionScore: 80,
+          feedback: { label: 'Solid session' },
+          workouts: [],
+        },
+      ],
     };
     const prompt = buildCoachSystemPrompt(context);
-    expect(prompt).toContain('YESTERDAY');
+    expect(prompt).toContain('RECENT SESSIONS');
+    expect(prompt).toContain('Yesterday');
     expect(prompt).toContain('80');
   });
 

@@ -152,9 +152,9 @@ export async function fetchHealthHistory(days = 14) {
 function getRestingHeartRate() {
   return new Promise((resolve) => {
     // RHR is a daily aggregate value written by Apple Watch, typically in the morning.
-    // Look back 3 days to catch readings missed if the watch wasn't worn last night.
+    // Look back 7 days to catch readings when the watch wasn't worn for several nights.
     const options = {
-      startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
@@ -171,9 +171,9 @@ function getRestingHeartRate() {
 function getHRV() {
   return new Promise((resolve) => {
     // HRV is measured during sleep or rest by Apple Watch.
-    // Look back 3 days to cover nights where the watch wasn't worn.
+    // Look back 7 days to cover nights where the watch wasn't worn.
     const options = {
-      startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
@@ -313,11 +313,12 @@ const HEALTHKIT_WORKOUT_TYPE_MAP = {
   46: 'swim', // HKWorkoutActivityTypeSwimming
   13: 'bike', // HKWorkoutActivityTypeCycling
   37: 'run', // HKWorkoutActivityTypeRunning
-  52: 'walk', // HKWorkoutActivityTypeWalking
-  35: 'hike', // HKWorkoutActivityTypeHiking
   50: 'strength', // HKWorkoutActivityTypeFunctionalStrengthTraining
   20: 'strength', // HKWorkoutActivityTypeTraditionalStrengthTraining
+  // walks, hikes, and other non-triathlon activities are intentionally excluded
 };
+
+const SUPPORTED_DISCIPLINES = new Set(['run', 'bike', 'swim', 'strength']);
 
 /**
  * Map a HealthKit workout activity type to an app discipline.
@@ -458,8 +459,63 @@ async function enrichWorkoutWithDetails(workout, restingHR, age) {
 }
 
 /**
+ * Merge duplicate workout entries with the same discipline, date, and similar
+ * duration/start time. Handles double-logging from watch + iPhone.
+ */
+export function deduplicateWorkouts(workouts) {
+  const groups = [];
+
+  for (const w of workouts) {
+    const wDate = w.startDate ? new Date(w.startDate).toDateString() : null;
+    const wStart = w.startDate ? new Date(w.startDate).getTime() : null;
+    const wDur = w.durationMinutes || 0;
+
+    const existing = groups.find((g) => {
+      if (g.discipline !== w.discipline) return false;
+      const gDate = g.startDate ? new Date(g.startDate).toDateString() : null;
+      if (gDate !== wDate) return false;
+      const gStart = g.startDate ? new Date(g.startDate).getTime() : null;
+      const startDiff = gStart && wStart ? Math.abs(gStart - wStart) / 60000 : 999;
+      const durDiff = Math.abs((g.durationMinutes || 0) - wDur);
+      return startDiff <= 30 && durDiff <= 3;
+    });
+
+    if (existing) {
+      // Merge into existing group: keep earliest start, latest end, sum calories, max HR
+      if (wStart && new Date(existing.startDate).getTime() > wStart) {
+        existing.startDate = w.startDate;
+      }
+      if (w.endDate && (!existing.endDate || new Date(existing.endDate) < new Date(w.endDate))) {
+        existing.endDate = w.endDate;
+      }
+      existing.calories = (existing.calories || 0) + (w.calories || 0);
+      if (w.avgHeartRate && (!existing.avgHeartRate || w.avgHeartRate > existing.avgHeartRate)) {
+        existing.avgHeartRate = w.avgHeartRate;
+      }
+      if (w.maxHeartRate && (!existing.maxHeartRate || w.maxHeartRate > existing.maxHeartRate)) {
+        existing.maxHeartRate = w.maxHeartRate;
+      }
+      if (w.avgPace && existing.avgPace) {
+        existing.avgPace = (existing.avgPace + w.avgPace) / 2;
+      }
+      // Recompute duration from merged start/end
+      if (existing.startDate && existing.endDate) {
+        existing.durationMinutes = Math.round(
+          (new Date(existing.endDate) - new Date(existing.startDate)) / 60000
+        );
+      }
+    } else {
+      groups.push({ ...w });
+    }
+  }
+
+  return groups;
+}
+
+/**
  * Fetch completed workouts from Apple Health for the last N days.
- * Enriches recent workouts (last 7 days) with heart rate and effort data.
+ * Filters to triathlon-relevant disciplines, deduplicates, and enriches
+ * recent workouts (last 7 days) with heart rate and effort data.
  */
 export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) {
   if (!AppleHealthKit) {
@@ -478,9 +534,14 @@ export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) 
 
     const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
     const endDate = new Date().toISOString();
-    const workouts = await getWorkoutSamples(startDate, endDate);
+    const rawWorkouts = await getWorkoutSamples(startDate, endDate);
+
+    // Filter to triathlon-relevant disciplines only (no walks, hikes, other)
+    const workouts = rawWorkouts.filter((w) => SUPPORTED_DISCIPLINES.has(w.discipline));
     // eslint-disable-next-line no-console
-    console.log(`[HealthKit] Fetched ${workouts.length} workouts (last ${daysBack} days)`);
+    console.log(
+      `[HealthKit] Fetched ${rawWorkouts.length} workouts, ${workouts.length} after filtering (last ${daysBack} days)`
+    );
 
     // Enrich recent workouts (last 7 days) with HR data
     const { restingHR, age } = enrichOptions;
@@ -500,9 +561,11 @@ export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) 
         return w;
       })
     );
+    // Deduplicate entries with same discipline, date, and similar start/duration
+    const deduped = deduplicateWorkouts(enriched);
     // Sort chronologically so slice(-N) reliably returns the N most recent
-    enriched.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-    return enriched;
+    deduped.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+    return deduped;
   } catch (e) {
     // eslint-disable-next-line no-console
     console.log('[HealthKit] Failed to fetch workouts:', e.message || e);

@@ -163,6 +163,30 @@ export function findYesterdayCompletedWorkouts(completedWorkouts) {
 }
 
 /**
+ * Find completed workouts from Apple Health across the last N days including today.
+ * Returns workouts grouped by date: [{ dateLabel, dateString, workouts }]
+ */
+export function findRecentCompletedWorkouts(completedWorkouts, daysBack = 3) {
+  if (!completedWorkouts || completedWorkouts.length === 0) return [];
+
+  const days = [];
+  for (let i = 0; i <= daysBack; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    d.setHours(0, 0, 0, 0);
+    const dateString = d.toDateString();
+    const label = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : `${i} days ago`;
+    const workouts = completedWorkouts.filter(
+      (w) => w.startDate && new Date(w.startDate).toDateString() === dateString
+    );
+    if (workouts.length > 0) {
+      days.push({ dateLabel: label, dateString, workouts });
+    }
+  }
+  return days;
+}
+
+/**
  * Score how well yesterday's Apple Health activity matched the prescribed workout.
  * Compares discipline match and duration ratio.
  * Returns 0-100 or null if no data.

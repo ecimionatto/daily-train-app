@@ -8,7 +8,7 @@ import {
 } from '../services/healthKit';
 import { analyzeHealthTrends, analyzeWorkoutTrends } from '../services/trendAnalysis';
 import {
-  findYesterdayCompletedWorkouts,
+  findRecentCompletedWorkouts,
   calculateRecentComplianceScore,
   calculateRecentActivityScore,
   calculateRacePreparationScore,
@@ -22,7 +22,9 @@ import {
   onModelProgress,
   getWeeklyDisciplinePlan,
   getBaseDuration,
+  generateWorkoutLocally,
 } from '../services/localModel';
+import { getDisciplinesForProfile } from '../services/raceConfig';
 
 const AppContext = createContext();
 
@@ -31,12 +33,16 @@ export function useApp() {
 }
 
 export function AppProvider({ children }) {
-  const [athleteProfile, setAthleteProfile] = useState(null);
+  const [athleteProfile, setAthleteProfile] = useState(undefined);
   const [healthData, setHealthData] = useState(null);
   const [todayWorkout, setTodayWorkout] = useState(null);
   const [readinessScore, setReadinessScore] = useState(null);
   const [alternativeWorkout, setAlternativeWorkout] = useState(null);
-  const [yesterdayScore, setYesterdayScore] = useState(null);
+  const [recentScore, setRecentScore] = useState(null);
+  const [tomorrowWorkout, setTomorrowWorkout] = useState(null);
+  const [tomorrowAlternatives, setTomorrowAlternatives] = useState([]);
+  const [tomorrowAlternativeIndex, setTomorrowAlternativeIndex] = useState(0);
+  const [generatingTomorrow, setGeneratingTomorrow] = useState(false);
   const [overallReadiness, setOverallReadiness] = useState(null);
   const [workoutHistory, setWorkoutHistory] = useState([]);
   const [completedWorkouts, setCompletedWorkouts] = useState([]);
@@ -55,6 +61,7 @@ export function AppProvider({ children }) {
       migrateProfileIfNeeded(athleteProfile);
       loadHealthData();
       loadCachedWorkout();
+      loadCachedTomorrowWorkout();
       loadWorkoutHistory();
       loadCompletedWorkouts();
       loadLocalModel();
@@ -64,7 +71,7 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (readinessScore !== null) {
-      computeYesterdayScore(workoutHistory, completedWorkouts);
+      computeRecentScore(completedWorkouts);
       computeOverallReadiness(readinessScore, workoutHistory, completedWorkouts);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,9 +92,10 @@ export function AppProvider({ children }) {
   async function loadProfile() {
     try {
       const stored = await AsyncStorage.getItem('athleteProfile');
-      if (stored) setAthleteProfile(JSON.parse(stored));
+      setAthleteProfile(stored ? JSON.parse(stored) : null);
     } catch (e) {
       console.warn('Failed to load profile:', e);
+      setAthleteProfile(null);
     }
   }
 
@@ -220,55 +228,138 @@ export function AppProvider({ children }) {
     setAlternativeWorkout(workout);
   }
 
-  function computeYesterdayScore(_history, healthWorkouts) {
-    // Only use Apple Health data — no manual fallback
-    const yesterdayHealthWorkouts = findYesterdayCompletedWorkouts(healthWorkouts);
-    if (yesterdayHealthWorkouts.length === 0) {
-      setYesterdayScore(null);
+  async function loadCachedTomorrowWorkout() {
+    try {
+      const cached = await AsyncStorage.getItem('tomorrowWorkout');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        if (parsed.date === tomorrow.toDateString()) {
+          setTomorrowWorkout(parsed.workout);
+          setTomorrowAlternatives(parsed.alternatives || []);
+          setTomorrowAlternativeIndex(parsed.altIndex || 0);
+        } else {
+          // Stale cache — clear it
+          await AsyncStorage.removeItem('tomorrowWorkout');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load cached tomorrow workout:', e);
+    }
+  }
+
+  async function saveTomorrowCache(workout, alternatives, altIndex) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    await AsyncStorage.setItem(
+      'tomorrowWorkout',
+      JSON.stringify({ date: tomorrow.toDateString(), workout, alternatives, altIndex })
+    );
+  }
+
+  async function generateAndSaveTomorrow() {
+    if (!athleteProfile) return;
+    setGeneratingTomorrow(true);
+    try {
+      const phase = getTrainingPhase();
+      const daysToRace = getDaysToRace();
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowDay = tomorrow.getDay();
+      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
+      const primaryDiscipline = weekPlan[tomorrowDay];
+      const disciplines = getDisciplinesForProfile(athleteProfile).filter(
+        (d) => d !== 'rest' && d !== 'strength'
+      );
+
+      const baseParams = {
+        profile: athleteProfile,
+        healthData,
+        readinessScore,
+        phase,
+        daysToRace,
+        completedWorkouts,
+        trends,
+        targetDate: tomorrow,
+      };
+
+      // Generate primary workout
+      const primary = await generateWorkoutLocally({
+        ...baseParams,
+        targetDiscipline: primaryDiscipline,
+      });
+
+      // Generate up to 2 alternatives with different disciplines
+      const altDisciplines = disciplines.filter((d) => d !== primary.discipline).slice(0, 2);
+      const alts = await Promise.all(
+        altDisciplines.map((d) =>
+          generateWorkoutLocally({ ...baseParams, targetDiscipline: d }).catch(() => null)
+        )
+      );
+      const alternatives = [primary, ...alts.filter(Boolean)];
+
+      setTomorrowWorkout(primary);
+      setTomorrowAlternatives(alternatives);
+      setTomorrowAlternativeIndex(0);
+      await saveTomorrowCache(primary, alternatives, 0);
+    } catch (e) {
+      console.warn('Failed to generate tomorrow workout:', e);
+    }
+    setGeneratingTomorrow(false);
+  }
+
+  async function rotateTomorrowWorkout() {
+    if (!tomorrowAlternatives || tomorrowAlternatives.length <= 1) return;
+    const nextIndex = (tomorrowAlternativeIndex + 1) % tomorrowAlternatives.length;
+    const nextWorkout = tomorrowAlternatives[nextIndex];
+    setTomorrowAlternativeIndex(nextIndex);
+    setTomorrowWorkout(nextWorkout);
+    await saveTomorrowCache(nextWorkout, tomorrowAlternatives, nextIndex);
+  }
+
+  function computeRecentScore(healthWorkouts) {
+    // Build per-day breakdown for last 3 days including today
+    const recentDays = findRecentCompletedWorkouts(healthWorkouts, 3);
+    if (recentDays.length === 0) {
+      setRecentScore(null);
       return;
     }
 
-    // Reconstruct what was prescribed yesterday
     const phase = getTrainingPhase();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayDay = yesterday.getDay();
+    const baseDuration = athleteProfile ? getBaseDuration(phase, athleteProfile.weeklyHours) : 60;
     const plan = athleteProfile ? getWeeklyDisciplinePlan(phase, athleteProfile) : null;
-    const prescribedDiscipline = plan ? plan[yesterdayDay] : null;
-    const prescribedDuration = athleteProfile
-      ? getBaseDuration(phase, athleteProfile.weeklyHours)
-      : 60;
 
-    // Build prescribed workout for compliance comparison
-    const prescribedWorkout = prescribedDiscipline
-      ? { discipline: prescribedDiscipline, duration: prescribedDuration }
-      : null;
+    const scoredDays = recentDays.map(({ dateLabel, dateString, workouts }) => {
+      const date = new Date(dateString);
+      const dayOfWeek = date.getDay();
+      const prescribedDiscipline = plan ? plan[dayOfWeek] : null;
+      const prescribedWorkout = prescribedDiscipline
+        ? { discipline: prescribedDiscipline, duration: baseDuration }
+        : null;
+      const complianceScore = calculateDailyComplianceScore(prescribedWorkout, workouts);
+      const score = complianceScore ?? 0;
+      const feedback = getCompletionFeedback(score);
 
-    // Use compliance scoring (compares discipline + duration match)
-    const complianceScore = calculateDailyComplianceScore(
-      prescribedWorkout,
-      yesterdayHealthWorkouts
-    );
-    const score = complianceScore ?? 0;
-    const feedback = getCompletionFeedback(score);
-
-    const allWorkouts = yesterdayHealthWorkouts.map((w) => ({
-      title:
-        w.activityName ||
-        `${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)} Session`,
-      discipline: w.discipline,
-      duration: w.durationMinutes,
-      startDate: w.startDate,
-    }));
-
-    setYesterdayScore({
-      completionScore: score,
-      prescribedDiscipline,
-      prescribedDuration,
-      feedback,
-      completedWorkout: allWorkouts[allWorkouts.length - 1],
-      allWorkouts,
+      return {
+        dateLabel,
+        dateString,
+        prescribedDiscipline,
+        prescribedDuration: baseDuration,
+        completionScore: score,
+        feedback,
+        workouts: workouts.map((w) => ({
+          title:
+            w.activityName ||
+            `${w.discipline?.charAt(0).toUpperCase()}${w.discipline?.slice(1)} Session`,
+          discipline: w.discipline,
+          duration: w.durationMinutes,
+          startDate: w.startDate,
+        })),
+      };
     });
+
+    setRecentScore(scoredDays);
   }
 
   function detectTodayCompletion() {
@@ -373,7 +464,7 @@ export function AppProvider({ children }) {
     getDaysToRace,
     alternativeWorkout,
     saveAlternativeWorkout,
-    yesterdayScore,
+    recentScore,
     overallReadiness,
     workoutHistory,
     loadWorkoutHistory,
@@ -384,6 +475,12 @@ export function AppProvider({ children }) {
     trends,
     modelStatus,
     modelProgress,
+    tomorrowWorkout,
+    tomorrowAlternatives,
+    tomorrowAlternativeIndex,
+    generatingTomorrow,
+    generateAndSaveTomorrow,
+    rotateTomorrowWorkout,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
