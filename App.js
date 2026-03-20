@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -101,14 +101,9 @@ function AppLoader({ children }) {
     // Consider app ready once we've attempted to load profile (null or set)
     if (athleteProfile !== undefined) {
       setAppReady(true);
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [athleteProfile]);
-
-  const onLayoutRootView = useCallback(async () => {
-    if (appReady) {
-      await SplashScreen.hideAsync();
-    }
-  }, [appReady]);
 
   if (!appReady) {
     return (
@@ -119,11 +114,7 @@ function AppLoader({ children }) {
     );
   }
 
-  return (
-    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
-      {children}
-    </View>
-  );
+  return <View style={{ flex: 1 }}>{children}</View>;
 }
 
 const splashStyles = StyleSheet.create({
