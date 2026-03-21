@@ -13,6 +13,61 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import { getWeeklyDisciplinePlan, generateWorkoutLocally } from '../services/localModel';
 
+const WORKOUT_BRIEFS = {
+  swim: {
+    BASE: 'Aerobic technique — easy effort',
+    BUILD: 'Threshold intervals + technique',
+    PEAK: 'Race-pace swim sets',
+    TAPER: 'Easy technique focus',
+    RACE_WEEK: 'Short activation swim',
+  },
+  bike: {
+    BASE: 'Zone 2 endurance ride',
+    BUILD: 'Tempo intervals on the bike',
+    PEAK: 'Race-pace cycling efforts',
+    TAPER: 'Easy spin, keep it light',
+    RACE_WEEK: 'Short opener spin',
+  },
+  run: {
+    BASE: 'Easy aerobic run — conversational pace',
+    BUILD: 'Tempo run with structured intervals',
+    PEAK: 'Race-pace run efforts',
+    TAPER: 'Easy recovery run',
+    RACE_WEEK: 'Shakeout run — very easy',
+  },
+  brick: {
+    BASE: 'Long aerobic ride + short run',
+    BUILD: 'Bike-to-run transition training',
+    PEAK: 'Race-pace brick session',
+    TAPER: 'Easy brick — short transition',
+    RACE_WEEK: null,
+  },
+  strength: {
+    BASE: 'Functional strength & core',
+    BUILD: 'Strength endurance circuit',
+    PEAK: 'Maintenance strength session',
+    TAPER: 'Light activation only',
+    RACE_WEEK: null,
+  },
+  rest: {
+    BASE: 'Full recovery — no training',
+    BUILD: 'Full recovery — no training',
+    PEAK: 'Full recovery — no training',
+    TAPER: 'Full recovery — no training',
+    RACE_WEEK: 'Full recovery — no training',
+  },
+};
+
+function getWorkoutBrief(discipline, phase, trends) {
+  const base = WORKOUT_BRIEFS[discipline]?.[phase] || null;
+  if (!base || discipline === 'rest') return base;
+  // Append a recovery note when fatigue trend is detected
+  if (trends?.health?.overallTrend === 'fatiguing') {
+    return base + ' · Recovery-adjusted (fatigue detected)';
+  }
+  return base;
+}
+
 const DISCIPLINE_COLORS = {
   swim: '#47b2ff',
   bike: '#e8ff47',
@@ -221,7 +276,10 @@ export default function CalendarScreen({ navigation }) {
                     </View>
                   )}
                 </View>
-                <Text style={styles.phaseText}>{PHASE_LABELS[day.phase]}</Text>
+                {(() => {
+                  const brief = getWorkoutBrief(day.discipline, day.phase, trends);
+                  return brief ? <Text style={styles.briefText}>{brief}</Text> : null;
+                })()}
               </>
             )}
           </View>
@@ -245,7 +303,7 @@ export default function CalendarScreen({ navigation }) {
         </TouchableOpacity>
       );
     },
-    [handleDayPress]
+    [handleDayPress, trends]
   );
 
   const renderSectionHeader = useCallback(({ section }) => {
@@ -530,12 +588,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  phaseText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 2,
-  },
   raceLabel: {
     backgroundColor: '#ff6b6b22',
     paddingHorizontal: 10,
@@ -771,6 +823,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 20,
+  },
+  briefText: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 3,
+    lineHeight: 15,
   },
   brickBadge: {
     backgroundColor: '#ff9f4322',

@@ -152,21 +152,21 @@ export async function fetchHealthHistory(days = 14) {
 function getRestingHeartRate() {
   return new Promise((resolve) => {
     // RHR is a daily aggregate value written by Apple Watch.
-    // Look back 30 days to maximise the chance of finding a recent reading.
+    // Look back 60 days to maximise the chance of finding a recent reading.
+    // Use getRestingHeartRateSamples (array API) — the single-value API has
+    // inconsistent behavior across react-native-health versions.
     const options = {
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
       limit: 1,
       ascending: false,
     };
-    AppleHealthKit.getRestingHeartRate(options, (err, results) => {
+    AppleHealthKit.getRestingHeartRateSamples(options, (err, results) => {
       // eslint-disable-next-line no-console
       console.log('[HealthKit] RHR result:', err, results);
-      // Native implementation returns an array from fetchQuantitySamplesOfType
-      const sample = Array.isArray(results) ? results[0] : results;
-      if (err || !sample?.value) {
+      if (err || !results?.length) {
         resolve(null);
       } else {
-        resolve(Math.round(sample.value));
+        resolve(Math.round(results[0].value));
       }
     });
   });
@@ -236,10 +236,12 @@ function getVO2Max() {
 
 function getRestingHeartRateForDate(startDate, endDate) {
   return new Promise((resolve) => {
-    AppleHealthKit.getRestingHeartRate({ startDate, endDate }, (err, results) => {
-      const sample = Array.isArray(results) ? results[0] : results;
-      resolve(err || !sample?.value ? null : Math.round(sample.value));
-    });
+    AppleHealthKit.getRestingHeartRateSamples(
+      { startDate, endDate, limit: 1, ascending: false },
+      (err, results) => {
+        resolve(err || !results?.length ? null : Math.round(results[0].value));
+      }
+    );
   });
 }
 

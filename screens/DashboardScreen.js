@@ -278,6 +278,10 @@ export default function DashboardScreen({ navigation }) {
               <Text style={styles.workoutIntensity}>{todayWorkout.intensity?.toUpperCase()}</Text>
             </View>
             <Text style={styles.workoutDescription}>{todayWorkout.summary}</Text>
+            {(() => {
+              const note = getRecoveryNote(displayScore, trends, healthData);
+              return note ? <Text style={styles.recoveryNote}>{note}</Text> : null;
+            })()}
 
             {/* Show actual stats when completed */}
             {todayMatchedWorkout && todayWorkoutStatus !== 'pending' && (
@@ -511,6 +515,34 @@ function formatPace(avgPaceMinPerKm) {
   const mins = Math.floor(avgPaceMinPerKm);
   const secs = Math.round((avgPaceMinPerKm - mins) * 60);
   return `${mins}:${secs.toString().padStart(2, '0')} /km`;
+}
+
+function getRecoveryNote(readinessScore, trends, healthData) {
+  if (!readinessScore) return null;
+  const trend = trends?.health?.overallTrend;
+  const hrv = healthData?.hrv;
+  const rhr = healthData?.restingHR;
+
+  if (trend === 'fatiguing' || readinessScore < 45) {
+    return `Recovery-adjusted: readiness ${readinessScore}/100. Keep intensity low and prioritise completion over pace.`;
+  }
+  if (readinessScore < 60) {
+    if (hrv && rhr) {
+      return `Moderate session: HRV ${hrv}ms · RHR ${rhr}bpm. Aim for the lower end of prescribed zones.`;
+    }
+    return `Moderate readiness (${readinessScore}/100). Aim for the lower end of prescribed zones.`;
+  }
+  if (readinessScore >= 80) {
+    if (hrv && rhr) {
+      return `High readiness: HRV ${hrv}ms · RHR ${rhr}bpm. You're primed — push the prescribed effort today.`;
+    }
+    return `High readiness (${readinessScore}/100). You're primed — push the prescribed effort today.`;
+  }
+  // 60-79: normal
+  if (hrv && rhr) {
+    return `Readiness ${readinessScore}/100 · HRV ${hrv}ms · RHR ${rhr}bpm. Execute as prescribed.`;
+  }
+  return null;
 }
 
 function getNutritionTip(workout) {
@@ -1062,6 +1094,14 @@ const styles = StyleSheet.create({
   actualStatsValue: {
     color: '#ccc',
     fontSize: 12,
+  },
+  recoveryNote: {
+    color: '#e8ff47',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   nutritionCard: {
     backgroundColor: '#1a1a2e',
