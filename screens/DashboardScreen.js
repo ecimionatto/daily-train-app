@@ -16,6 +16,7 @@ import {
   analyzeRecentWorkouts,
   getWeeklyDisciplinePlan,
 } from '../services/localModel';
+import { diagnoseRHR } from '../services/healthKit';
 
 export default function DashboardScreen({ navigation }) {
   const {
@@ -119,6 +120,27 @@ export default function DashboardScreen({ navigation }) {
     setRefreshing(true);
     await loadCompletedWorkouts();
     setRefreshing(false);
+  }
+
+  async function runRHRDiagnostic() {
+    try {
+      const result = await diagnoseRHR();
+      const lines = [];
+      ['samples', 'single', 'rawHR', 'hrv'].forEach((key) => {
+        const r = result[key];
+        if (!r) return;
+        const firstValue = Array.isArray(r.data)
+          ? (r.data[0]?.value ?? 'no items')
+          : (r.data?.value ?? 'no value');
+        const count = Array.isArray(r.data) ? r.data.length : 'n/a';
+        lines.push(
+          `${r.api}:\n  err=${JSON.stringify(r.err)}\n  count=${count}\n  first=${firstValue}`
+        );
+      });
+      Alert.alert('HealthKit RHR Diagnostic', lines.join('\n\n') || JSON.stringify(result));
+    } catch (e) {
+      Alert.alert('Diagnostic Error', e.message || String(e));
+    }
   }
 
   function handleGenerateTomorrow() {
@@ -392,11 +414,16 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.recentActivityCard}>
         <View style={styles.recentActivityHeader}>
           <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>RECENT ACTIVITY</Text>
-          <TouchableOpacity onPress={syncWorkouts} disabled={refreshing}>
-            <Text style={[styles.syncButton, refreshing && styles.syncButtonDisabled]}>
-              {refreshing ? 'SYNCING...' : 'SYNC'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.recentActivityActions}>
+            <TouchableOpacity onPress={syncWorkouts} disabled={refreshing}>
+              <Text style={[styles.syncButton, refreshing && styles.syncButtonDisabled]}>
+                {refreshing ? 'SYNCING...' : 'SYNC'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={runRHRDiagnostic} style={styles.diagButton}>
+              <Text style={styles.diagButtonText}>DIAGNOSE</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         {completedWorkouts && completedWorkouts.length > 0 ? (
           completedWorkouts
@@ -1094,6 +1121,24 @@ const styles = StyleSheet.create({
   actualStatsValue: {
     color: '#ccc',
     fontSize: 12,
+  },
+  recentActivityActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  diagButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#444',
+    borderRadius: 6,
+  },
+  diagButtonText: {
+    color: '#666',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   recoveryNote: {
     color: '#e8ff47',

@@ -104,6 +104,53 @@ export async function fetchHealthData() {
   }
 }
 
+/**
+ * Diagnostic: run several HealthKit queries for RHR and return raw results.
+ * Used to identify whether the issue is permissions, data format, or missing data.
+ * Returns a plain object summarising each query's outcome.
+ */
+export async function diagnoseRHR() {
+  if (!AppleHealthKit) return { error: 'HealthKit not available on this platform' };
+
+  const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [samples, single, rawHR, hrv] = await Promise.all([
+    // Test 1 — getRestingHeartRateSamples (array API)
+    new Promise((resolve) => {
+      AppleHealthKit.getRestingHeartRateSamples(
+        { startDate, limit: 3, ascending: false },
+        (err, data) => resolve({ api: 'getRestingHeartRateSamples', err: err || null, data })
+      );
+    }),
+    // Test 2 — getRestingHeartRate (single-value API)
+    new Promise((resolve) => {
+      AppleHealthKit.getRestingHeartRate({ startDate, limit: 1, ascending: false }, (err, data) =>
+        resolve({ api: 'getRestingHeartRate', err: err || null, data })
+      );
+    }),
+    // Test 3 — raw HeartRate samples as fallback
+    new Promise((resolve) => {
+      AppleHealthKit.getHeartRateSamples(
+        {
+          startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+          limit: 3,
+          ascending: false,
+        },
+        (err, data) => resolve({ api: 'getHeartRateSamples', err: err || null, data })
+      );
+    }),
+    // Test 4 — HRV
+    new Promise((resolve) => {
+      AppleHealthKit.getHeartRateVariabilitySamples(
+        { startDate, limit: 3, ascending: false },
+        (err, data) => resolve({ api: 'getHeartRateVariabilitySamples', err: err || null, data })
+      );
+    }),
+  ]);
+
+  return { samples, single, rawHR, hrv };
+}
+
 export async function fetchHealthHistory(days = 14) {
   if (!AppleHealthKit) {
     // eslint-disable-next-line no-console
