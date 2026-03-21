@@ -161,10 +161,12 @@ function getRestingHeartRate() {
     AppleHealthKit.getRestingHeartRate(options, (err, results) => {
       // eslint-disable-next-line no-console
       console.log('[HealthKit] RHR result:', err, results);
-      if (err || !results?.value) {
+      // Native implementation returns an array from fetchQuantitySamplesOfType
+      const sample = Array.isArray(results) ? results[0] : results;
+      if (err || !sample?.value) {
         resolve(null);
       } else {
-        resolve(Math.round(results.value));
+        resolve(Math.round(sample.value));
       }
     });
   });
@@ -235,7 +237,8 @@ function getVO2Max() {
 function getRestingHeartRateForDate(startDate, endDate) {
   return new Promise((resolve) => {
     AppleHealthKit.getRestingHeartRate({ startDate, endDate }, (err, results) => {
-      resolve(err || !results?.value ? null : Math.round(results.value));
+      const sample = Array.isArray(results) ? results[0] : results;
+      resolve(err || !sample?.value ? null : Math.round(sample.value));
     });
   });
 }
