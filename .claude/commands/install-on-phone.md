@@ -56,6 +56,15 @@ Must see `App installed` and `bundleID: com.dailytrain.app`.
 If the iPhone shows an "Untrusted Developer" alert:
 > Settings → General → VPN & Device Management → [developer email] → Trust
 
+### 7. If build fails due to missing provisioning profile
+Personal Team certificates expire every 7 days. If xcodebuild reports a signing/provisioning error:
+1. Open **Xcode → Settings → Accounts**
+2. Select `ecimio@icloud.com` → click **Download Manual Profiles**
+3. Wait for Xcode to confirm profiles downloaded
+4. Re-run the Release build (step 4)
+
+This caches the renewed provisioning profile on disk so xcodebuild can find it. Required after every certificate renewal.
+
 ## Notes
 - Free Apple account (Personal Team J52KM8A8YH): app expires after 7 days, rebuild to renew
 - Debug builds (for hot reload development) skip steps 3-5 and use `-configuration Debug`; Metro must be running via `npm start`

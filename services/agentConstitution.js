@@ -113,12 +113,13 @@ DISCIPLINE: The weekly training plan defines today's discipline. NEVER suggest a
 // COACH KNOWLEDGE
 // Evidence-based training science injected into every coaching response.
 // ---------------------------------------------------------------------------
-export const COACH_KNOWLEDGE = `HR ZONES: Z1<65%(recovery) Z2 65-75%(aerobic, 80% of volume) Z3 76-82%(tempo,≤1/wk) Z4 83-89%(threshold,readiness>70) Z5≥90%(VO2max,BUILD/PEAK only)
+export const COACH_KNOWLEDGE = `HR ZONES: Z1<65%(recovery) Z2 65-75%(aerobic base, most of weekly volume) Z3 76-82%(tempo,≤1/wk) Z4 83-89%(threshold,readiness>70) Z5≥90%(VO2max,BUILD/PEAK only)
 HRV vs baseline: >+10%→upgrade | ±10%→execute | -5-10%→drop 1 zone | -10-15%→easy+20%shorter | >-15%+RHR↑→rest | 3+days declining→light week
 RHR above baseline: +3-5bpm→moderate only | +5-10bpm→no intensity | +10bpm→rest
-PHASES: BASE=80%Z2+volume(≤8%/wk) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
+PHASES: BASE=aerobic base (Z1-Z2 only, volume ≤8%/wk increase) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
 TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
-LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest. 80/20 rule=80% of sessions must be easy Zone 1-2, only 20% hard Zone 3-5 — this is NOT about recovery vs training time.`;
+LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest.
+80/20 RULE (session distribution, NOT time split): 80% of weekly sessions = easy Z1-Z2 aerobic; 20% = hard Z3-Z5 intensity. Example: if 5 sessions/week → 4 easy + 1 hard.`;
 
 // ---------------------------------------------------------------------------
 // Builder functions — return formatted strings for system prompt injection
