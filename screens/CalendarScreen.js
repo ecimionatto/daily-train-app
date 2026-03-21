@@ -17,6 +17,7 @@ const DISCIPLINE_COLORS = {
   swim: '#47b2ff',
   bike: '#e8ff47',
   run: '#47ffb2',
+  brick: '#ff9f43',
   strength: '#ff6b6b',
   rest: '#333',
 };
@@ -210,8 +211,15 @@ export default function CalendarScreen({ navigation }) {
                 <View style={styles.disciplineRow}>
                   <View style={[styles.disciplineDot, { backgroundColor: color }]} />
                   <Text style={styles.disciplineText}>
-                    {day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
+                    {day.discipline === 'brick'
+                      ? 'Bike + Run'
+                      : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
                   </Text>
+                  {day.discipline === 'brick' && (
+                    <View style={styles.brickBadge}>
+                      <Text style={styles.brickBadgeText}>BRICK</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={styles.phaseText}>{PHASE_LABELS[day.phase]}</Text>
               </>
@@ -305,7 +313,9 @@ function WorkoutDetailModal({ day, workout, generating, onClose }) {
               <View style={styles.disciplineRow}>
                 <View style={[styles.disciplineDot, { backgroundColor: color }]} />
                 <Text style={styles.modalDiscipline}>
-                  {day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
+                  {day.discipline === 'brick'
+                    ? 'Bike + Run (Brick)'
+                    : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
                 </Text>
                 <Text style={styles.modalPhase}> · {PHASE_LABELS[day.phase]}</Text>
               </View>
@@ -761,5 +771,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 20,
+  },
+  brickBadge: {
+    backgroundColor: '#ff9f4322',
+    borderWidth: 1,
+    borderColor: '#ff9f43',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  brickBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#ff9f43',
+    letterSpacing: 1,
   },
 });

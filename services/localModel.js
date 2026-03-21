@@ -704,16 +704,17 @@ export function getWeeklyDisciplinePlan(phase, profile) {
   }
   const weak = profile.weakestDiscipline?.toLowerCase() || 'swim';
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
-  // Default: Mon=rest, Sat/Sun=long endurance sessions
+  // Rules: no two consecutive same discipline; long sessions & bricks on weekends (Sat=6, Sun=0).
+  // BUILD/PEAK: Saturday is a brick session (bike → run transition).
   const plans = {
-    BASE: ['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike'],
-    BUILD: ['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike'],
-    PEAK: ['run', 'rest', weak, 'bike', 'run', 'swim', 'bike'],
-    TAPER: ['bike', 'rest', 'swim', 'bike', 'run', 'rest', 'run'],
+    BASE: ['swim', 'rest', 'run', 'bike', 'swim', 'run', 'bike'],
+    BUILD: ['run', 'rest', 'swim', 'bike', 'run', 'rest', 'brick'],
+    PEAK: ['swim', 'rest', 'run', 'bike', weak, 'rest', 'brick'],
+    TAPER: ['bike', 'rest', 'swim', 'run', 'bike', 'rest', 'run'],
     RACE_WEEK: ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
   };
   const basePlan = plans[phase] || plans.BASE;
-  return applySchedulePreferences(basePlan, profile, 'bike');
+  return applySchedulePreferences(basePlan, profile, 'brick');
 }
 
 /**
@@ -990,6 +991,63 @@ function buildWorkout(discipline, duration, readiness, _phase, _profile) {
           name: 'Cooldown',
           notes: 'Stretch and foam roll.',
           sets: [{ description: '10 min stretching and foam rolling', zone: null }],
+        },
+      ],
+    },
+    brick: {
+      title: intensity === 'hard' ? 'Race-Pace Brick' : 'Aerobic Brick',
+      discipline: 'brick',
+      duration,
+      summary:
+        intensity === 'hard'
+          ? 'Bike at tempo then immediately run to simulate race transitions and train your legs to run off the bike.'
+          : 'Long aerobic ride followed by a short run. Teaches your legs to transition from cycling to running.',
+      intensity,
+      sections: [
+        {
+          name: 'Bike Leg',
+          notes:
+            intensity === 'hard'
+              ? 'Build to tempo effort on the bike.'
+              : 'Steady Zone 2 ride — long and aerobic.',
+          sets:
+            intensity === 'hard'
+              ? [
+                  { description: `${Math.round(duration * 0.15)} min easy spin warmup`, zone: 1 },
+                  { description: `${Math.round(duration * 0.5)} min at tempo effort`, zone: 3 },
+                  { description: '5 min easy spin before dismount', zone: 1 },
+                ]
+              : [
+                  { description: `${Math.round(duration * 0.15)} min easy spin warmup`, zone: 1 },
+                  { description: `${Math.round(duration * 0.6)} min steady Zone 2 ride`, zone: 2 },
+                ],
+        },
+        {
+          name: 'T2 Transition',
+          notes: 'Quick change — rack bike, swap shoes, go. Practice smooth, calm transition.',
+          sets: [{ description: 'Rack bike → helmet off → running shoes on → go', zone: null }],
+        },
+        {
+          name: 'Run Leg',
+          notes: 'Legs will feel heavy for the first 5-10 min — this is normal. Stay steady.',
+          sets:
+            intensity === 'hard'
+              ? [
+                  { description: `${Math.round(duration * 0.25)} min at race pace`, zone: 3 },
+                  { description: 'Focus on quick turnover despite heavy legs', zone: 3 },
+                ]
+              : [
+                  {
+                    description: `${Math.round(duration * 0.2)} min easy run off the bike`,
+                    zone: 2,
+                  },
+                  { description: 'Stay relaxed — do not chase pace', zone: 2 },
+                ],
+        },
+        {
+          name: 'Cooldown',
+          notes: 'Walk and stretch after the run.',
+          sets: [{ description: '5 min walk + static stretching', zone: null }],
         },
       ],
     },

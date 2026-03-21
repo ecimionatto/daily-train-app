@@ -373,8 +373,8 @@ describe('generateWorkoutLocally with running profile', () => {
 describe('getWeeklyDisciplinePlan with schedule preferences', () => {
   it('returns default plan when no preferences set', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
-    // Default: rest on Monday (index 1), long sessions on weekend
-    expect(plan).toEqual(['run', 'rest', 'swim', 'bike', 'run', 'swim', 'bike']);
+    // Default: rest on Monday (index 1), alternating disciplines, long sessions on weekend
+    expect(plan).toEqual(['swim', 'rest', 'run', 'bike', 'swim', 'run', 'bike']);
   });
 
   it('moves bike to weekend when longDays set to Saturday and Sunday', () => {
