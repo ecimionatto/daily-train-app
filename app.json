@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.dailytrain.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NSHealthShareUsageDescription": "DailyTrain reads your health data to personalize your training plan.",
         "NSHealthUpdateUsageDescription": "DailyTrain logs workouts to Apple Health."
