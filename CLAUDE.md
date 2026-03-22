@@ -73,6 +73,20 @@ Do not duplicate runtime AI behavior rules here. Refer to that file for:
 - Output constraints (150-word limit, no name addressing, no future workout invention)
 - Training science knowledge (HR zones, HRV/RHR thresholds, phase rules, 80/20 rule)
 
+### On-Device AI Context Window & Token Management
+
+The Qwen model runs with a limited context window (≤4096 tokens). The constitution and all system prompts **must** be written to stay within budget. Enforce these rules in `agentConstitution.js` and `chatService.js`:
+
+1. **System prompt budget**: The full system prompt (identity + skills + athlete data + constraints) must not exceed **2048 tokens**. Keep every section terse — bullet points, no prose.
+2. **Conversation history**: Only pass the last **6 messages** (3 athlete + 3 coach turns) to the model. Older messages are summarised into a single `conversationSummary` string injected at the top of context. See `buildCoachSystemPrompt()`.
+3. **Athlete data**: Include only fields relevant to the current intent classification. Do not dump the full profile — emit only the fields that are non-null and relevant to the query.
+4. **Skill payloads**: Each skill section in `buildSkillsSection()` must be ≤ 3 lines. Omit skills unrelated to the current intent.
+5. **Token estimation**: `chatService.js` must estimate token count before calling `runInference()`. Rule of thumb: 1 token ≈ 4 characters. If the prompt exceeds 2000 tokens, truncate `conversationSummary` first, then trim `COACH_KNOWLEDGE`, never trim identity or constraints.
+6. **Response length**: `COACH_CONSTRAINTS` enforces 150-word max responses. The model must not be prompted to produce longer outputs.
+7. **Context drift prevention**: `conversationSummary` is regenerated every 6 turns by calling `summariseConversation()` — a lightweight prompt that asks the model to compress the prior exchange into ≤50 words.
+
+When implementing new coach features that add data to the system prompt, always measure the token impact and document it in a comment above the section added.
+
 ## Development Methodology
 
 ### Spec-Driven Development (The Contract)
@@ -99,6 +113,31 @@ Once the contract is locked, use conversational AI to flesh out the implementati
 | Human role | Architect / spec writer | Orchestrator / prompt engineer |
 | Source of truth | CLAUDE.md + tests | Chat history + generated code |
 | When | System design, APIs, new features | UI tweaks, logic blocks, prototypes |
+
+## Phase 2 — Paid Cloud Backup & Advanced Coaching (Future)
+
+The app is designed to remain fully functional offline (all data on-device). Phase 2 introduces an optional paid feature layer without changing the core architecture.
+
+### Design Constraints (enforce now, implement later)
+
+- **Never couple core data writes directly to a remote API.** All writes go through AsyncStorage first; `backupService.js` is called as a side-effect after each write.
+- **`services/backupService.js`** is the authoritative interface. All stubs are no-ops returning `{ success: false }`. Phase 2 replaces the implementation, NOT the API surface.
+- **Auth: Sign In with Apple preferred** (already in entitlements). Do not add a custom email/password auth system.
+- **Data keys to sync:** `athleteProfile`, `workoutHistory`, `chatConversation`. Never sync `completedWorkouts` (source of truth is Apple Health).
+- **Restore flow:** `restoreFromCloud(userId)` returns a `Record<string, string>` map; caller writes to AsyncStorage then reloads. No special UI path needed — normal app boot handles it.
+
+### Feature Gates
+
+- `isBackupEnabled()` must gate every paid feature call. Currently always returns `false`.
+- UI entry point: "Premium" section in Plan Settings screen (placeholder "Coming Soon" label).
+- Do NOT implement subscription receipt validation until Phase 2 — just show the placeholder.
+
+### Advanced Coaching (Phase 2)
+
+- Server-side prompt with full 90-day workout history (not just 6 messages)
+- Population comparison: "Your Z2 HR is 8 bpm above median for athletes with similar LTHR"
+- Periodisation analytics: flag when the athlete is deviating from the planned build curve
+- These run as a separate API call (`getAdvancedCoachResponse`) that falls back to on-device Qwen if network is unavailable
 
 ## iOS Build & Deploy
 

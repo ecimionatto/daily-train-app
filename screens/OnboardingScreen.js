@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
+import { computeAndSaveHRProfile } from '../services/healthKit';
 import {
   EXPERIENCE_OPTIONS,
   getGoalTimesForDistance,
@@ -125,6 +126,9 @@ export default function OnboardingScreen({ onComplete }) {
     }
 
     await saveProfile(profile);
+    // Compute HR profile from 6 months of workout history once on plan creation.
+    // Wrapped in Promise.resolve so test auto-mocks (which return undefined) don't throw.
+    Promise.resolve(computeAndSaveHRProfile(profile, saveProfile)).catch(() => {});
     onComplete();
   }
 

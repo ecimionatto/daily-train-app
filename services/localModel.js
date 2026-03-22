@@ -141,13 +141,74 @@ export function isModelReady() {
   return modelLoaded && llamaContext !== null;
 }
 
-/** Sanitize a parsed AI workout — rest days must have duration 0. */
-function sanitizeWorkout(workout) {
+const HARD_TITLE_KEYWORDS = ['tempo', 'threshold', 'interval', 'vo2', 'sprint', 'fartlek', 'speed'];
+const EASY_TITLE_KEYWORDS = ['easy', 'recovery', 'base', 'aerobic', 'zone 2', 'z2'];
+
+function classifyIntensity(workout) {
+  if (workout.intensity === 'hard') return 'hard';
+  if (workout.intensity === 'easy' || workout.intensity === 'recovery') return 'easy';
+  const title = (workout.title || '').toLowerCase();
+  if (HARD_TITLE_KEYWORDS.some((kw) => title.includes(kw))) return 'hard';
+  if (EASY_TITLE_KEYWORDS.some((kw) => title.includes(kw))) return 'easy';
+  return 'moderate';
+}
+
+const WARMUP_COOLDOWN_NAMES = ['warm', 'cool', 'recovery', 'flush', 'stretch'];
+
+/**
+ * Return true if this section is a warmup or cooldown by name.
+ * Warmup/cooldown zones are intentionally low (Z1-Z2) — do not correct them.
+ */
+function isWarmupOrCooldown(section) {
+  const name = (section.name || '').toLowerCase();
+  return WARMUP_COOLDOWN_NAMES.some((kw) => name.includes(kw));
+}
+
+/**
+ * Fix zone numbers in AI-generated sections to match workout intensity.
+ *
+ * Prior bug: used index-based "middle section" detection which broke for workouts
+ * with 2 sections (warmup + main) — the main set IS the last section, so it was
+ * silently skipped. Now uses section name to identify warmup/cooldown instead.
+ *
+ * Hard/tempo workouts: non-warmup-cooldown zones must be >= 3.
+ * Easy/recovery workouts: non-warmup-cooldown zones must be <= 2.
+ */
+function enforceZoneConsistency(workout) {
+  if (!workout.sections?.length) return workout;
+  const classification = classifyIntensity(workout);
+  if (classification === 'moderate') return workout;
+
+  const sections = workout.sections.map((section) => {
+    // Leave warmup and cooldown zones as-is — they should stay Z1-Z2
+    if (isWarmupOrCooldown(section) || !section.sets) return section;
+
+    const sets = section.sets.map((set) => {
+      if (set.zone === null || set.zone === undefined) return set;
+      if (classification === 'hard' && set.zone < 3) return { ...set, zone: 3 };
+      if (classification === 'easy' && set.zone > 2) return { ...set, zone: 2 };
+      return set;
+    });
+    return { ...section, sets };
+  });
+  return { ...workout, sections };
+}
+
+/**
+ * Sanitize a parsed AI workout:
+ * - Rest days get duration 0
+ * - Main set zones are corrected to match intensity / title keywords
+ *   (AI sometimes writes Zone 2 in Tempo workouts — this catches the mismatch)
+ *
+ * Exported so AppContext can run it on cached workouts loaded from AsyncStorage,
+ * fixing any stale entries that were generated before this sanitizer existed.
+ */
+export function sanitizeWorkout(workout) {
   if (!workout) return workout;
   if (workout.discipline === 'rest') {
     return { ...workout, duration: 0 };
   }
-  return workout;
+  return enforceZoneConsistency(workout);
 }
 
 /**
@@ -204,6 +265,44 @@ export async function runInference(systemPrompt, userPrompt) {
 }
 
 /**
+ * Return a HR range hint string for a given zone number.
+ * Returns empty string if hrZones is unavailable.
+ *
+ * @param {number} zoneNum - Zone number (1-5)
+ * @param {Object|null} hrZones - HR zones object from buildKarvonenZones or deriveHRZonesFromWorkouts
+ * @returns {string}
+ */
+function zoneHRHint(zoneNum, hrZones) {
+  if (!hrZones?.zones?.[zoneNum - 1]) return '';
+  const z = hrZones.zones[zoneNum - 1];
+  return ` (${z.min}-${z.max} bpm)`;
+}
+
+/**
+ * Inject HR range hints into workout set descriptions that include a zone.
+ *
+ * @param {Object} workout - Parsed workout object with sections/sets
+ * @param {Object|null} hrZones - HR zones object
+ * @returns {Object} Workout with enriched set descriptions
+ */
+function injectHRHintsIntoWorkout(workout, hrZones) {
+  if (!hrZones || !workout?.sections) return workout;
+  return {
+    ...workout,
+    sections: workout.sections.map((section) => ({
+      ...section,
+      sets: section.sets.map((set) => {
+        if (set.zone == null) return set;
+        return {
+          ...set,
+          description: set.description + zoneHRHint(set.zone, hrZones),
+        };
+      }),
+    })),
+  };
+}
+
+/**
  * Generate a daily workout using local model or rule-based fallback.
  */
 export async function generateWorkoutLocally({
@@ -216,6 +315,7 @@ export async function generateWorkoutLocally({
   targetDate,
   targetDiscipline,
   trends,
+  hrZones,
 }) {
   const raceType = profile.raceType || 'triathlon';
   const coachType = isRunningOnly(profile) ? 'running' : 'endurance triathlon';
@@ -265,7 +365,7 @@ Day: ${(targetDate || new Date()).toLocaleDateString('en-US', { weekday: 'long' 
       if (targetDiscipline && parsed.discipline !== targetDiscipline) {
         parsed.discipline = targetDiscipline;
       }
-      return sanitizeWorkout(parsed);
+      return sanitizeWorkout(injectHRHintsIntoWorkout(parsed, hrZones));
     }
   } catch (e) {
     if (!(e instanceof ModelNotReadyError) && !(e instanceof ContextFullError)) throw e;

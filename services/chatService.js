@@ -1,7 +1,12 @@
 import { runInference, getModelLoadingProgress } from './localModel';
 import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
-import { generateTrendSummary } from './trendAnalysis';
+import { deriveHRZonesFromWorkouts } from './healthKit';
+import {
+  generateTrendSummary,
+  detectPaceAchievements,
+  formatAchievementsForCoach,
+} from './trendAnalysis';
 import {
   buildIdentitySection,
   buildSkillsSection,
@@ -885,10 +890,17 @@ function isWorkoutPrescription(content) {
   return (hasDiscipline && hasQuantity) || hasPrescriptionVerb;
 }
 
+// Max messages passed into context — 6 turns (3 athlete + 3 coach).
+// Older messages are summarised into topTopics to preserve context budget.
+const MAX_HISTORY_MESSAGES = 6;
+
 export function buildConversationSummary(messages) {
   if (!messages || messages.length === 0) return '';
 
-  const athleteMessages = messages.filter((m) => m.role === 'athlete');
+  // Only analyse the most recent MAX_HISTORY_MESSAGES for recent topics;
+  // older history is intentionally dropped to stay within token budget.
+  const bounded = messages.slice(-MAX_HISTORY_MESSAGES);
+  const athleteMessages = bounded.filter((m) => m.role === 'athlete');
   const topicCounts = {};
   athleteMessages.forEach((m) => {
     const topic = classifyMessage(m.content);
@@ -902,13 +914,13 @@ export function buildConversationSummary(messages) {
 
   const parts = [];
   if (topTopics.length > 0) {
-    parts.push(`CONVERSATION HISTORY (${messages.length} messages):`);
+    parts.push(`CONVERSATION HISTORY (last ${bounded.length} messages):`);
     parts.push(`Key topics discussed: ${topTopics.join(', ')}`);
   }
 
-  // Pin the most recent workout prescription from the full history.
+  // Pin the most recent workout prescription from the bounded history.
   // This prevents the LLM from prescribing a different workout when asked again.
-  const coachMessages = messages.filter((m) => m.role === 'coach');
+  const coachMessages = bounded.filter((m) => m.role === 'coach');
   const lastPrescription = [...coachMessages]
     .reverse()
     .find((m) => isWorkoutPrescription(m.content));
@@ -921,7 +933,7 @@ export function buildConversationSummary(messages) {
   }
 
   // Include last 2 exchanges (4 messages) with content capped to save context space
-  const recentMessages = messages.slice(-4);
+  const recentMessages = bounded.slice(-4);
   if (recentMessages.length > 0) {
     parts.push('Recent messages:');
     recentMessages.forEach((m) => {
@@ -1086,6 +1098,7 @@ export function buildCoachSystemPrompt(context) {
     overallReadiness,
     workoutHistory,
     conversationSummary,
+    completedWorkouts,
   } = context;
 
   const sections = [];
@@ -1106,13 +1119,19 @@ export function buildCoachSystemPrompt(context) {
 - Injuries: ${athleteProfile?.injuries || 'None'}
 - Goal time: ${athleteProfile?.goalTime || 'N/A'}`);
 
+  const hrZones = deriveHRZonesFromWorkouts(completedWorkouts, healthData?.restingHR);
+  const zonesLine = hrZones
+    ? `- HR zones (derived): LTHR ${hrZones.lthr} bpm | Z2 ${hrZones.zones[1].min}-${hrZones.zones[1].max} | Z4 ${hrZones.zones[3].min}-${hrZones.zones[3].max} bpm`
+    : '- HR zones: formula-based (insufficient workout data)';
+
   sections.push(`CURRENT STATUS:
 - Training phase: ${phase || 'BASE'}
 - Days to race: ${daysToRace ?? 'N/A'}
 - Readiness score: ${readinessScore ?? 'N/A'}/100
 - Resting HR: ${healthData?.restingHR || 'N/A'} bpm
 - HRV: ${healthData?.hrv || 'N/A'} ms
-- Sleep: ${healthData?.sleepHours?.toFixed(1) || 'N/A'} hours`);
+- Sleep: ${healthData?.sleepHours?.toFixed(1) || 'N/A'} hours
+${zonesLine}`);
 
   if (overallReadiness) {
     sections.push(`OVERALL READINESS BREAKDOWN:
@@ -1181,6 +1200,16 @@ export function buildCoachSystemPrompt(context) {
     sections.push(`TRAINING TRENDS:\n${summary}`);
   }
 
+  // Pace achievements and PRs — used to congratulate and motivate
+  // Only injected when completedWorkouts is available (avoids empty block)
+  if (completedWorkouts?.length > 0) {
+    const achievements = detectPaceAchievements(completedWorkouts);
+    const achievementBlock = formatAchievementsForCoach(achievements);
+    if (achievementBlock) {
+      sections.push(achievementBlock);
+    }
+  }
+
   // Athlete insights from recent conversations
   const insights = athleteProfile?.athleteInsights;
   if (insights) {
@@ -1234,7 +1263,57 @@ export function buildCoachSystemPrompt(context) {
 
   sections.push(COACH_CONSTRAINTS);
 
-  return sections.join('\n\n');
+  const raw = sections.join('\n\n');
+  return trimPromptToTokenBudget(raw);
+}
+
+// ---------------------------------------------------------------------------
+// TOKEN MANAGEMENT
+// Qwen 3.5 context window is 4096 tokens. System prompt must stay ≤ 2048 tokens.
+// Rule of thumb: 1 token ≈ 4 characters.
+// ---------------------------------------------------------------------------
+
+const MAX_SYSTEM_PROMPT_TOKENS = 2048;
+const CHARS_PER_TOKEN = 4;
+const MAX_SYSTEM_CHARS = MAX_SYSTEM_PROMPT_TOKENS * CHARS_PER_TOKEN;
+
+/**
+ * Estimate token count from a string using the 4-char-per-token heuristic.
+ */
+export function estimateTokens(text) {
+  if (!text) return 0;
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+/**
+ * Trim a system prompt to fit within the 2048-token budget.
+ * Truncation priority (least important first):
+ *   1. CONVERSATION HISTORY section (if present)
+ *   2. COACHING KNOWLEDGE section
+ * Identity, constraints, and athlete status are never trimmed.
+ */
+export function trimPromptToTokenBudget(prompt) {
+  if (estimateTokens(prompt) <= MAX_SYSTEM_PROMPT_TOKENS) return prompt;
+
+  // Try trimming the CONVERSATION HISTORY section first
+  let trimmed = prompt.replace(/(CONVERSATION HISTORY[\s\S]*?)(\n\n[A-Z])/, (_, _history, next) => {
+    const short = _history.split('\n').slice(0, 4).join('\n') + '\n[history trimmed for context]';
+    return short + next;
+  });
+  if (estimateTokens(trimmed) <= MAX_SYSTEM_PROMPT_TOKENS) return trimmed;
+
+  // Then trim COACHING KNOWLEDGE to first 3 lines
+  trimmed = trimmed.replace(
+    /(COACHING KNOWLEDGE:\n)([\s\S]*?)(\n\n[A-Z])/,
+    (_, label, content, next) => {
+      const short = content.split('\n').slice(0, 3).join('\n') + '\n[knowledge trimmed]';
+      return label + short + next;
+    }
+  );
+  if (estimateTokens(trimmed) <= MAX_SYSTEM_PROMPT_TOKENS) return trimmed;
+
+  // Last resort: hard truncate to budget (preserves start of prompt — identity + constraints)
+  return trimmed.slice(0, MAX_SYSTEM_CHARS) + '\n[prompt truncated]';
 }
 
 /**

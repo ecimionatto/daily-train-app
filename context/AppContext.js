@@ -5,6 +5,7 @@ import {
   fetchHealthHistory,
   calculateReadiness,
   fetchCompletedWorkouts,
+  computeAndSaveHRProfile,
 } from '../services/healthKit';
 import { analyzeHealthTrends, analyzeWorkoutTrends } from '../services/trendAnalysis';
 import {
@@ -23,6 +24,7 @@ import {
   getWeeklyDisciplinePlan,
   getBaseDuration,
   generateWorkoutLocally,
+  sanitizeWorkout,
 } from '../services/localModel';
 import { getDisciplinesForProfile } from '../services/raceConfig';
 
@@ -139,13 +141,32 @@ export function AppProvider({ children }) {
   async function loadCachedWorkout() {
     try {
       const cached = await AsyncStorage.getItem('todayWorkout');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const today = new Date().toDateString();
-        if (parsed.date === today) {
-          setTodayWorkout(parsed.workout);
-        }
+      if (!cached) return;
+
+      const parsed = JSON.parse(cached);
+      const today = new Date().toDateString();
+      if (parsed.date !== today) return; // stale date — ignore
+
+      // Validate that the cached discipline still matches the plan.
+      // If the plan was regenerated or rebuilt, the cache may say "bike"
+      // while the plan now prescribes "run". Discard and regenerate if so.
+      const phase = getTrainingPhase();
+      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
+      const prescribedDiscipline = weekPlan[new Date().getDay()];
+      const cachedDiscipline = parsed.workout?.discipline;
+
+      if (cachedDiscipline && prescribedDiscipline && cachedDiscipline !== prescribedDiscipline) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[AppContext] Cached workout discipline "${cachedDiscipline}" does not match plan "${prescribedDiscipline}" — clearing cache`
+        );
+        await AsyncStorage.removeItem('todayWorkout');
+        return;
       }
+
+      // Re-run sanitizer on cached workout to fix stale zone-intensity mismatches
+      // (e.g. AI-generated "Tempo Run" with Zone 2 sections from before the fix).
+      setTodayWorkout(sanitizeWorkout(parsed.workout));
     } catch (e) {
       console.warn('Failed to load cached workout:', e);
     }
@@ -186,22 +207,55 @@ export function AppProvider({ children }) {
       await saveProfile(migrated);
     }
     // v2: clear cached workout so discipline enforcement fix takes effect
-    const WORKOUT_MIGRATION_KEY = 'appMigration_v2_clearDisciplineCache';
+    const WORKOUT_MIGRATION_V2_KEY = 'appMigration_v2_clearDisciplineCache';
     try {
-      const done = await AsyncStorage.getItem(WORKOUT_MIGRATION_KEY);
+      const done = await AsyncStorage.getItem(WORKOUT_MIGRATION_V2_KEY);
       if (!done) {
         await AsyncStorage.removeItem('todayWorkout');
-        await AsyncStorage.setItem(WORKOUT_MIGRATION_KEY, 'done');
+        await AsyncStorage.setItem(WORKOUT_MIGRATION_V2_KEY, 'done');
         // eslint-disable-next-line no-console
         console.log('[AppContext] v2 migration: cleared stale todayWorkout cache');
       }
     } catch (e) {
       console.warn('[AppContext] v2 migration failed:', e);
     }
+
+    // v3: clear cached workout so zone-intensity consistency fix takes effect
+    // (AI-generated Tempo Run workouts with Zone 2 sections are now corrected on generation;
+    //  stale cache entries pre-dating this fix must be discarded and regenerated.)
+    const WORKOUT_MIGRATION_V3_KEY = 'appMigration_v3_clearZoneCache';
+    try {
+      const done = await AsyncStorage.getItem(WORKOUT_MIGRATION_V3_KEY);
+      if (!done) {
+        await AsyncStorage.removeItem('todayWorkout');
+        await AsyncStorage.setItem(WORKOUT_MIGRATION_V3_KEY, 'done');
+        // eslint-disable-next-line no-console
+        console.log('[AppContext] v3 migration: cleared stale zone-inconsistent workout cache');
+      }
+    } catch (e) {
+      console.warn('[AppContext] v3 migration failed:', e);
+    }
   }
 
   async function saveTodayWorkout(workout) {
     try {
+      // Guard: only save if discipline matches the plan for today.
+      // Prevents caching a generated workout with the wrong discipline
+      // (which would cause the coach to contradict Week/Home screens).
+      const phase = getTrainingPhase();
+      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
+      const prescribedDiscipline = weekPlan[new Date().getDay()];
+      if (
+        workout?.discipline &&
+        prescribedDiscipline &&
+        workout.discipline !== prescribedDiscipline
+      ) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[AppContext] Refusing to save workout with discipline "${workout.discipline}" — plan prescribes "${prescribedDiscipline}" today`
+        );
+        return;
+      }
       const today = new Date().toDateString();
       await AsyncStorage.setItem('todayWorkout', JSON.stringify({ date: today, workout }));
       setTodayWorkout(workout);
@@ -220,6 +274,27 @@ export function AppProvider({ children }) {
       setTodayWorkout(newWorkout);
     } catch (e) {
       console.warn('Failed to swap workout:', e);
+    }
+  }
+
+  /**
+   * Reset the training plan by clearing cached workouts from AsyncStorage.
+   * Preserves athleteProfile — only clears generated workout data.
+   * Re-fetches completed workouts from Apple Health after reset.
+   */
+  async function resetTrainingPlan() {
+    try {
+      await AsyncStorage.multiRemove(['todayWorkout', 'tomorrowWorkout', 'workoutHistory']);
+      setTodayWorkout(null);
+      setTomorrowWorkout(null);
+      setWorkoutHistory([]);
+      setCompletedWorkouts([]);
+      await loadCompletedWorkouts();
+      // Recompute HR profile from fresh 6-month history after plan reset.
+      // Wrapped in Promise.resolve so test auto-mocks don't throw.
+      Promise.resolve(computeAndSaveHRProfile(athleteProfile, saveProfile)).catch(() => {});
+    } catch (e) {
+      console.warn('Failed to reset training plan:', e);
     }
   }
 
@@ -494,6 +569,7 @@ export function AppProvider({ children }) {
     generatingTomorrow,
     generateAndSaveTomorrow,
     rotateTomorrowWorkout,
+    resetTrainingPlan,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

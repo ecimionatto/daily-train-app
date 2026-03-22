@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useApp } from '../context/AppContext';
 
-export default function WorkoutScreen() {
+export default function WorkoutScreen({ navigation }) {
   const { todayWorkout } = useApp();
 
   if (!todayWorkout) {
@@ -19,6 +19,11 @@ export default function WorkoutScreen() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
+        {navigation?.canGoBack() && (
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.backButtonText}>{'← Back'}</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.title}>{todayWorkout.title}</Text>
         <View style={styles.metaRow}>
           <Text style={styles.discipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
@@ -78,6 +83,15 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 60,
     marginBottom: 20,
+  },
+  backButton: {
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    color: '#47b2ff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   title: {
     color: '#ffffff',

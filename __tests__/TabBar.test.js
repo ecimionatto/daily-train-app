@@ -8,7 +8,7 @@ describe('TabBar', () => {
       index: focusedIndex,
       routes: [
         { key: 'Dashboard-key', name: 'Dashboard' },
-        { key: 'Workout-key', name: 'Workout' },
+        { key: 'HRZonesTab-key', name: 'HRZonesTab' },
         { key: 'Recovery-key', name: 'Recovery' },
         { key: 'Weekly-key', name: 'Weekly' },
         { key: 'Coach-key', name: 'Coach' },
@@ -16,7 +16,7 @@ describe('TabBar', () => {
     },
     descriptors: {
       'Dashboard-key': { options: {} },
-      'Workout-key': { options: {} },
+      'HRZonesTab-key': { options: {} },
       'Recovery-key': { options: {} },
       'Weekly-key': { options: {} },
       'Coach-key': { options: {} },
@@ -32,7 +32,7 @@ describe('TabBar', () => {
     const { getByText } = render(<TabBar {...props} />);
 
     expect(getByText('Home')).toBeTruthy();
-    expect(getByText('Train')).toBeTruthy();
+    expect(getByText('Zones')).toBeTruthy();
     expect(getByText('Recovery')).toBeTruthy();
     expect(getByText('Week')).toBeTruthy();
     expect(getByText('Coach')).toBeTruthy();
@@ -43,7 +43,7 @@ describe('TabBar', () => {
     const { getByText } = render(<TabBar {...props} />);
 
     expect(getByText('◉')).toBeTruthy();
-    expect(getByText('▶')).toBeTruthy();
+    expect(getByText('♡')).toBeTruthy();
     expect(getByText('♥')).toBeTruthy();
     expect(getByText('▦')).toBeTruthy();
     expect(getByText('●')).toBeTruthy();
@@ -53,12 +53,12 @@ describe('TabBar', () => {
     const props = createMockProps(0);
     const { getByText } = render(<TabBar {...props} />);
 
-    fireEvent.press(getByText('Train'));
+    fireEvent.press(getByText('Zones'));
 
     expect(props.navigation.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'tabPress', target: 'Workout-key' })
+      expect.objectContaining({ type: 'tabPress', target: 'HRZonesTab-key' })
     );
-    expect(props.navigation.navigate).toHaveBeenCalledWith('Workout');
+    expect(props.navigation.navigate).toHaveBeenCalledWith('HRZonesTab');
   });
 
   it('does not navigate when pressing the focused tab', () => {

@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "expo-dev",
+      "name": "metro",
       "runtimeExecutable": "/bin/zsh",
-      "runtimeArgs": ["-c", "eval \"$($HOME/.local/bin/mise activate zsh)\" && npx expo start --port 8081"],
+      "runtimeArgs": ["-c", "eval \"$($HOME/.local/bin/mise activate zsh)\" && npx expo start --port 8081 --host lan"],
       "port": 8081
     }
   ]

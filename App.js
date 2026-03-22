@@ -18,6 +18,8 @@ import RecoveryScreen from './screens/RecoveryScreen';
 import WeeklyScreen from './screens/WeeklyScreen';
 import ChatScreen from './screens/ChatScreen';
 import CalendarScreen from './screens/CalendarScreen';
+import PlanSettingsScreen from './screens/PlanSettingsScreen';
+import HRZonesScreen from './screens/HRZonesScreen';
 import TabBar from './components/TabBar';
 import { ChatProvider } from './context/ChatContext';
 
@@ -40,7 +42,7 @@ function MainTabs() {
   return (
     <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Workout" component={WorkoutScreen} />
+      <Tab.Screen name="HRZonesTab" component={HRZonesScreen} />
       <Tab.Screen name="Recovery" component={RecoveryScreen} />
       <Tab.Screen name="Weekly" component={WeeklyScreen} />
       <Tab.Screen name="Coach" component={ChatScreen} />
@@ -86,7 +88,12 @@ function AppNavigator() {
             {(props) => <OnboardingScreen {...props} onComplete={() => setIsOnboarded(true)} />}
           </Stack.Screen>
         ) : (
-          <Stack.Screen name="Main" component={MainTabs} />
+          <>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="Workout" component={WorkoutScreen} />
+            <Stack.Screen name="PlanSettings" component={PlanSettingsScreen} />
+            <Stack.Screen name="HRZones" component={HRZonesScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

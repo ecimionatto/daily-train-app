@@ -221,10 +221,12 @@ function getRestingHeartRate() {
 
 function getHRV() {
   return new Promise((resolve) => {
-    // HRV is measured during sleep or rest by Apple Watch.
-    // Look back 30 days to cover extended periods without overnight wear.
+    // HRV is measured overnight by Apple Watch (SDNN / RMSSD).
+    // Look back 90 days and require explicit endDate — some native builds
+    // ignore ascending:false without a bounded range.
     const options = {
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date().toISOString(),
       limit: 1,
       ascending: false,
     };
@@ -234,31 +236,44 @@ function getHRV() {
       if (err || !results?.length) {
         resolve(null);
       } else {
-        const value = Math.round(results[0].value);
-        // 0ms RMSSD is not physiologically meaningful — treat as missing data
-        resolve(value > 0 ? value : null);
+        // Native module returns value in seconds (SDNN) — convert to ms
+        const raw = results[0].value;
+        const valueMs = raw < 1 ? Math.round(raw * 1000) : Math.round(raw);
+        // 0ms is not physiologically meaningful — treat as missing data
+        resolve(valueMs > 0 ? valueMs : null);
       }
     });
   });
 }
 
+// iOS 16+ uses granular sleep stages. Sum all stages that represent actual sleep.
+const SLEEP_STAGE_VALUES = new Set([
+  'ASLEEP', // pre-iOS 16
+  'CORE', // iOS 16+ light/core sleep
+  'DEEP', // iOS 16+ deep sleep
+  'REM', // iOS 16+ REM sleep
+]);
+
 function getSleepAnalysis() {
   return new Promise((resolve) => {
+    // Look back 36 hours to catch late-night + early-morning sessions
     const options = {
-      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      startDate: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date().toISOString(),
     };
     AppleHealthKit.getSleepSamples(options, (err, results) => {
       if (err || !results?.length) {
         resolve(null);
       } else {
-        // Sum up all sleep periods in hours
+        // Sum only actual sleep stages (not INBED/AWAKE) to get true sleep time
         let totalMs = 0;
         results.forEach((s) => {
-          if (s.value === 'ASLEEP' || s.value === 'INBED') {
+          if (SLEEP_STAGE_VALUES.has(s.value)) {
             totalMs += new Date(s.endDate) - new Date(s.startDate);
           }
         });
-        resolve(totalMs / (1000 * 60 * 60));
+        const hours = totalMs / (1000 * 60 * 60);
+        resolve(hours > 0 ? Math.round(hours * 10) / 10 : null);
       }
     });
   });
@@ -322,39 +337,59 @@ function getSleepForDate(startDate, endDate) {
 }
 
 /**
- * Readiness score algorithm (0-100)
- * Inputs: resting HR, HRV, sleep hours
- * Higher HRV + lower RHR + more sleep = higher score
+ * Readiness score algorithm (0-100).
+ * Inputs: HRV (SDNN ms), resting HR (bpm), sleep hours.
+ *
+ * Design principles:
+ * - Baseline 35: unknown state is below neutral — we need data to confirm readiness.
+ * - Missing metric = 0 contribution: can't confirm readiness without measurement.
+ * - Max score 100 requires exceptional values across ALL three metrics (rare).
+ * - Typical well-recovered athlete lands 70-85; elite days push 85-95.
+ *
+ * Component budgets:  HRV 0-30 | RHR 0-25 | Sleep 0-15  →  max 105 → capped 100.
  */
 export function calculateReadiness(data) {
   if (!data) return null;
+  // No signal at all — cannot score
+  if (data.hrv == null && data.restingHR == null && data.sleepHours == null) return null;
 
-  let score = 50; // baseline
+  let score = 35; // baseline: unknown/unconfirmed state
 
-  // HRV component (0-30 points) - higher is better
-  if (data.hrv !== null && data.hrv !== undefined) {
-    if (data.hrv >= 80) score += 30;
-    else if (data.hrv >= 60) score += 25;
-    else if (data.hrv >= 45) score += 18;
-    else if (data.hrv >= 30) score += 10;
-    else score += 5;
+  // HRV (0-30 pts) — autonomic recovery indicator (SDNN ms)
+  // Sports-science reference ranges for trained endurance athletes.
+  // NULL = unknown recovery → 0 pts (can't confirm readiness).
+  if (data.hrv != null) {
+    if (data.hrv >= 100)
+      score += 30; // exceptional — very well recovered
+    else if (data.hrv >= 75)
+      score += 23; // excellent
+    else if (data.hrv >= 55)
+      score += 16; // good
+    else if (data.hrv >= 40)
+      score += 9; // below average / moderate fatigue
+    else score += 3; // low — significant fatigue signal
   }
 
-  // Resting HR component (0-30 points) - lower is better
-  if (data.restingHR !== null && data.restingHR !== undefined) {
-    if (data.restingHR <= 48) score += 30;
-    else if (data.restingHR <= 52) score += 25;
-    else if (data.restingHR <= 58) score += 18;
-    else if (data.restingHR <= 65) score += 10;
-    else score += 0;
+  // Resting HR (0-25 pts) — chronically low = fitness; acutely elevated = fatigue
+  // NULL = 0 pts.
+  if (data.restingHR != null) {
+    if (data.restingHR <= 44) score += 25;
+    else if (data.restingHR <= 50) score += 20;
+    else if (data.restingHR <= 56) score += 14;
+    else if (data.restingHR <= 62) score += 7;
+    else if (data.restingHR <= 70) score += 2;
+    // > 70 bpm → 0 pts: significant concern
   }
 
-  // Sleep component (0-20 points)
-  if (data.sleepHours !== null && data.sleepHours !== undefined) {
-    if (data.sleepHours >= 8) score += 20;
-    else if (data.sleepHours >= 7) score += 15;
-    else if (data.sleepHours >= 6) score += 8;
-    else score += 0;
+  // Sleep (0-15 pts) — quantity (HealthKit doesn't expose quality score)
+  // NULL = 0 pts.
+  if (data.sleepHours != null) {
+    if (data.sleepHours >= 8.5) score += 15;
+    else if (data.sleepHours >= 7.5) score += 12;
+    else if (data.sleepHours >= 7) score += 9;
+    else if (data.sleepHours >= 6.5) score += 5;
+    else if (data.sleepHours >= 6) score += 2;
+    // < 6 hrs → 0 pts: sleep debt
   }
 
   return Math.min(100, Math.max(0, score));
@@ -393,6 +428,11 @@ function mapWorkoutSample(sample) {
   const durationMinutes = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
   const distanceMeters = sample.distance ? Math.round(sample.distance * 1609.34) : null;
 
+  // Apple Watch stores workout-level HR statistics on the HKWorkout record.
+  // react-native-health surfaces this as maxHeartRate (bpm) when available.
+  // This is the hardware-recorded peak — more accurate than periodic HR samples.
+  const maxHeartRate = sample.maxHeartRate ? Math.round(sample.maxHeartRate) : null;
+
   return {
     id: sample.id || `hk_${startDate}`,
     discipline: mapWorkoutType(sample.activityId),
@@ -402,6 +442,7 @@ function mapWorkoutSample(sample) {
     durationMinutes,
     calories: sample.calories ? Math.round(sample.calories) : null,
     distanceMeters,
+    maxHeartRate,
     source: sample.sourceName || 'Apple Health',
   };
 }
@@ -573,6 +614,108 @@ export function deduplicateWorkouts(workouts) {
  * Filters to triathlon-relevant disciplines, deduplicates, and enriches
  * recent workouts (last 7 days) with heart rate and effort data.
  */
+/**
+ * Scan the last N days of workouts to find the athlete's historical max heart rate.
+ *
+ * Strategy:
+ * 1. Fetch all workout samples (raw, without enrichment) for the date range.
+ * 2. For the top 10 most recent triathlon-relevant workouts, fetch HR samples
+ *    and take the maximum across all of them.
+ * 3. Returns null if HealthKit is not available or data is insufficient.
+ *
+ * @param {number} daysBack - How many days to look back (default 180 = 6 months)
+ * @returns {Promise<number|null>} Max heart rate in bpm, or null
+ */
+export async function fetchMaxWorkoutHeartRate(daysBack = 180) {
+  try {
+    const initialized = await initHealthKit();
+    if (!initialized) return null;
+
+    const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const endDate = new Date().toISOString();
+
+    const rawWorkouts = await getWorkoutSamples(startDate, endDate);
+    const relevant = rawWorkouts.filter((w) => SUPPORTED_DISCIPLINES.has(w.discipline));
+
+    if (relevant.length === 0) return null;
+
+    // Strategy 1 — use the max HR Apple Watch embedded in the HKWorkout record.
+    // This is the hardware peak, captured at native sampling rate by watchOS.
+    const metadataMaxValues = relevant
+      .map((w) => w.maxHeartRate)
+      .filter((v) => v !== null && v > 100);
+
+    if (metadataMaxValues.length > 0) {
+      return Math.max(...metadataMaxValues);
+    }
+
+    // Strategy 2 — react-native-health build doesn't expose workout maxHeartRate;
+    // fall back to querying per-workout HR samples.
+    // Scan ALL relevant workouts (not just 10) to find the true 6-month peak.
+    const perWorkoutMaxValues = await Promise.all(
+      relevant.map(async (w) => {
+        if (!w.startDate || !w.endDate) return null;
+        const { maxHeartRate } = await fetchHeartRateForWorkout(w.startDate, w.endDate);
+        return maxHeartRate;
+      })
+    );
+
+    const valid = perWorkoutMaxValues.filter((v) => v !== null && v > 100);
+    if (valid.length === 0) return null;
+
+    return Math.max(...valid);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] fetchMaxWorkoutHeartRate failed:', e.message || e);
+    return null;
+  }
+}
+
+/**
+ * Compute an HR profile from 6 months of workout history and the current resting HR,
+ * then persist it into the athlete profile via saveProfile.
+ *
+ * Called ONLY on:
+ *   - Initial onboarding completion
+ *   - Training plan reset
+ *
+ * Never called on routine app boot — stored values are used directly.
+ *
+ * @param {object} athleteProfile - Current profile object
+ * @param {Function} saveProfile - AppContext saveProfile function
+ * @returns {Promise<object>} Updated profile with hrProfile set
+ */
+export async function computeAndSaveHRProfile(athleteProfile, saveProfile) {
+  try {
+    const [maxHR, healthData] = await Promise.all([
+      fetchMaxWorkoutHeartRate(180),
+      fetchHealthData(),
+    ]);
+
+    const restingHR = healthData?.restingHR || athleteProfile?.hrProfile?.restingHR || null;
+
+    if (!maxHR && !restingHR) {
+      // Insufficient data — leave hrProfile unset so PlanSettings prompts user
+      return athleteProfile;
+    }
+
+    const hrProfile = {
+      maxHR: maxHR || athleteProfile?.hrProfile?.maxHR || null,
+      restingHR: restingHR || athleteProfile?.hrProfile?.restingHR || null,
+      source: maxHR ? 'workout_history' : 'resting_hr_only',
+      computedAt: new Date().toISOString(),
+    };
+
+    const updated = { ...athleteProfile, hrProfile };
+    await saveProfile(updated);
+    return updated;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log('[HealthKit] computeAndSaveHRProfile failed:', e.message || e);
+    return athleteProfile;
+  }
+}
+
 export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) {
   if (!AppleHealthKit) {
     // eslint-disable-next-line no-console
@@ -627,4 +770,91 @@ export async function fetchCompletedWorkouts(daysBack = 14, enrichOptions = {}) 
     console.log('[HealthKit] Failed to fetch workouts:', e.message || e);
     return [];
   }
+}
+
+/**
+ * Build HR zones using the Karvonen (Heart Rate Reserve) method.
+ * HRR = maxHR - restingHR
+ * Target HR = (HRR × intensity%) + restingHR
+ * Returns null if inputs are invalid.
+ *
+ * @param {number} maxHR - Maximum heart rate in bpm
+ * @param {number} restingHR - Resting heart rate in bpm
+ * @returns {{ method: string, maxHR: number, restingHR: number, hrr: number, zones: Array } | null}
+ */
+export function buildKarvonenZones(maxHR, restingHR) {
+  if (!maxHR || !restingHR || maxHR <= restingHR) return null;
+  const hrr = maxHR - restingHR;
+  const zone = (minPct, maxPct) => ({
+    min: Math.round(hrr * minPct + restingHR),
+    max: Math.round(hrr * maxPct + restingHR),
+  });
+  return {
+    method: 'karvonen',
+    maxHR,
+    restingHR,
+    hrr,
+    zones: [
+      { zone: 1, label: 'Recovery', ...zone(0.5, 0.6) },
+      { zone: 2, label: 'Aerobic', ...zone(0.6, 0.7) },
+      { zone: 3, label: 'Tempo', ...zone(0.7, 0.8) },
+      { zone: 4, label: 'Threshold', ...zone(0.8, 0.9) },
+      { zone: 5, label: 'VO2 Max', ...zone(0.9, 1.0) },
+    ],
+  };
+}
+
+/**
+ * Derive personalized heart rate zones from actual workout data.
+ *
+ * Method: collect avgHeartRate from hard workouts (effortScore ≥ 7) across all
+ * disciplines and average them to estimate Lactate Threshold HR (LTHR).
+ * Then apply Joe Friel's LTHR-based zone percentages.
+ *
+ * Returns null if there is insufficient data (fewer than 2 qualifying sessions).
+ *
+ * @param {Array} completedWorkouts - enriched workout objects with avgHeartRate + effortScore
+ * @param {number|null} restingHR - resting heart rate for zone anchoring (optional)
+ * @returns {{ lthr: number, zones: Array<{zone: number, label: string, min: number, max: number}> } | null}
+ */
+export function deriveHRZonesFromWorkouts(completedWorkouts, restingHR = null) {
+  if (!completedWorkouts?.length) return null;
+
+  // Collect hard sessions (effortScore 7-10) that have valid HR data
+  const hardSessions = completedWorkouts.filter((w) => w.effortScore >= 7 && w.avgHeartRate > 80);
+
+  // Also collect moderate sessions (effortScore 4-6) as Z2 anchors
+  const z2Sessions = completedWorkouts.filter(
+    (w) => w.effortScore >= 3 && w.effortScore <= 5 && w.avgHeartRate > 80
+  );
+
+  if (hardSessions.length < 2 && z2Sessions.length < 2) return null;
+
+  let lthr;
+  if (hardSessions.length >= 2) {
+    // Average of hard session HR → approximates LTHR
+    const avgHardHR =
+      hardSessions.reduce((sum, w) => sum + w.avgHeartRate, 0) / hardSessions.length;
+    lthr = Math.round(avgHardHR);
+  } else {
+    // Extrapolate LTHR from Z2 average: Z2 mid ≈ 87% LTHR → LTHR = Z2_avg / 0.87
+    const avgZ2HR = z2Sessions.reduce((sum, w) => sum + w.avgHeartRate, 0) / z2Sessions.length;
+    lthr = Math.round(avgZ2HR / 0.87);
+  }
+
+  // Joe Friel LTHR zone model for triathlon/endurance
+  const zones = [
+    { zone: 1, label: 'Recovery', min: Math.round(lthr * 0.0), max: Math.round(lthr * 0.85) },
+    { zone: 2, label: 'Aerobic', min: Math.round(lthr * 0.85), max: Math.round(lthr * 0.89) },
+    { zone: 3, label: 'Tempo', min: Math.round(lthr * 0.9), max: Math.round(lthr * 0.94) },
+    { zone: 4, label: 'Threshold', min: Math.round(lthr * 0.95), max: Math.round(lthr * 1.0) },
+    { zone: 5, label: 'VO2 Max', min: Math.round(lthr * 1.01), max: Math.round(lthr * 1.1) },
+  ];
+
+  return {
+    lthr,
+    restingHR: restingHR || null,
+    dataPoints: hardSessions.length + z2Sessions.length,
+    zones,
+  };
 }

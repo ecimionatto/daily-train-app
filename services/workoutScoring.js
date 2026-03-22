@@ -115,11 +115,14 @@ function getTimeBufferScore(daysToRace) {
 /**
  * Composite readiness: health (40%) + compliance (35%) + race prep (25%).
  * Returns 0-100.
+ *
+ * Null defaults are 40 (not 50) — unknown state should not inflate the score.
+ * A user with no data gets ~40/100, signalling "insufficient data" rather than "neutral".
  */
 export function calculateOverallReadiness(healthReadiness, complianceScore, racePreparationScore) {
-  const health = healthReadiness ?? 50;
-  const compliance = complianceScore ?? 50;
-  const racePrep = racePreparationScore ?? 50;
+  const health = healthReadiness ?? 40;
+  const compliance = complianceScore ?? 40;
+  const racePrep = racePreparationScore ?? 40;
 
   const overall = Math.round(health * 0.4 + compliance * 0.35 + racePrep * 0.25);
   return clamp(overall, 0, 100);

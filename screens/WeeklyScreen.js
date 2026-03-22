@@ -1,21 +1,96 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useApp } from '../context/AppContext';
-import { generateWeeklySummaryLocally } from '../services/localModel';
+import { generateWeeklySummaryLocally, getWeeklyDisciplinePlan } from '../services/localModel';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 const DISCIPLINES = {
   swim: '#47b2ff',
   bike: '#e8ff47',
   run: '#47ffb2',
   rest: '#333',
   strength: '#ff6b6b',
+  brick: '#ff9f43',
 };
 
-export default function WeeklyScreen() {
-  const { athleteProfile, getTrainingPhase, completedWorkouts } = useApp();
+const DOT_OPACITY_DONE = 1;
+const DOT_OPACITY_NOT_DONE = 0.4;
+
+/**
+ * Get the Monday of the current week as a Date object.
+ */
+function getMondayOfCurrentWeek() {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - daysSinceMonday);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/**
+ * Check whether any completed workout falls on a given calendar date.
+ *
+ * @param {Array} completedWorkouts
+ * @param {Date} date
+ * @returns {boolean}
+ */
+function hasWorkoutOnDate(completedWorkouts, date) {
+  if (!completedWorkouts || completedWorkouts.length === 0) return false;
+  return completedWorkouts.some((w) => {
+    if (!w.startDate) return false;
+    return new Date(w.startDate).toDateString() === date.toDateString();
+  });
+}
+
+/**
+ * Build the 7-day week grid using the prescribed plan as source of truth.
+ * One dot per day — the prescribed discipline. Overlay with completion status.
+ *
+ * @param {string[]} weekPlan - Array of 7 disciplines indexed 0=Sun..6=Sat
+ * @param {Array} completedWorkouts
+ * @returns {Array<{ day: string, date: Date, discipline: string, completed: boolean, isToday: boolean, isFuture: boolean }>}
+ */
+function buildWeekGrid(weekPlan, completedWorkouts) {
+  const monday = getMondayOfCurrentWeek();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return DAYS.map((dayLabel, idx) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + idx);
+
+    // weekPlan is indexed Sun=0..Sat=6, our grid is Mon=0..Sun=6
+    const sundayBasedIdx = (idx + 1) % 7;
+    const discipline = weekPlan[sundayBasedIdx] || 'rest';
+
+    const isToday = date.toDateString() === today.toDateString();
+    const isFuture = date > today;
+    const completed = hasWorkoutOnDate(completedWorkouts, date);
+
+    return { day: dayLabel, date, discipline, completed, isToday, isFuture };
+  });
+}
+
+export default function WeeklyScreen({ navigation }) {
+  const { athleteProfile, getTrainingPhase, getDaysToRace, completedWorkouts } = useApp();
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+
+  const phase = getTrainingPhase();
+  const daysToRace = getDaysToRace();
+
+  const weekPlan = useMemo(() => {
+    if (!athleteProfile) return Array(7).fill('rest');
+    return getWeeklyDisciplinePlan(phase, athleteProfile);
+  }, [phase, athleteProfile]);
+
+  const weekGrid = useMemo(
+    () => buildWeekGrid(weekPlan, completedWorkouts),
+    [weekPlan, completedWorkouts]
+  );
 
   const weekHistory = useMemo(() => {
     if (!completedWorkouts || completedWorkouts.length === 0) return [];
@@ -27,13 +102,37 @@ export default function WeeklyScreen() {
     });
   }, [completedWorkouts]);
 
+  const weekNumber = useMemo(() => {
+    if (!athleteProfile?.raceDate || daysToRace == null) return null;
+    const totalWeeks = Math.ceil(
+      (new Date(athleteProfile.raceDate) - new Date(athleteProfile.createdAt || Date.now())) /
+        (7 * 24 * 60 * 60 * 1000)
+    );
+    const weeksRemaining = Math.ceil(daysToRace / 7);
+    const current = Math.max(1, totalWeeks - weeksRemaining + 1);
+    return current;
+  }, [athleteProfile, daysToRace]);
+
+  const stats = useMemo(() => {
+    const totalDuration = weekHistory.reduce(
+      (sum, w) => sum + (w.durationMinutes || w.duration || 0),
+      0
+    );
+    const disciplineMap = {};
+    weekHistory.forEach((w) => {
+      const d = w.discipline?.toLowerCase() || 'other';
+      disciplineMap[d] = (disciplineMap[d] || 0) + (w.durationMinutes || w.duration || 0);
+    });
+    return { totalDuration, disciplines: disciplineMap };
+  }, [weekHistory]);
+
   async function requestWeeklySummary() {
     setLoadingSummary(true);
     try {
       const summary = await generateWeeklySummaryLocally({
         profile: athleteProfile,
         weekHistory,
-        phase: getTrainingPhase(),
+        phase,
       });
       setWeeklySummary(summary);
     } catch (e) {
@@ -42,65 +141,42 @@ export default function WeeklyScreen() {
     setLoadingSummary(false);
   }
 
-  function getWeekGrid() {
-    const grid = DAYS.map((day) => ({ day, workouts: [] }));
-    weekHistory.forEach((w) => {
-      const date = new Date(w.startDate || w.completedAt);
-      const dayIdx = (date.getDay() + 6) % 7; // Monday = 0
-      if (grid[dayIdx]) {
-        grid[dayIdx].workouts.push(w);
-      }
-    });
-    return grid;
+  function getDotOpacity(gridDay) {
+    if (gridDay.completed) return DOT_OPACITY_DONE;
+    return DOT_OPACITY_NOT_DONE;
   }
 
-  function getWeekStats() {
-    const totalDuration = weekHistory.reduce(
-      (sum, w) => sum + (w.durationMinutes || w.duration || 0),
-      0
-    );
-    const disciplines = {};
-    weekHistory.forEach((w) => {
-      const d = w.discipline?.toLowerCase() || 'other';
-      disciplines[d] = (disciplines[d] || 0) + (w.durationMinutes || w.duration || 0);
-    });
-    return { totalDuration, disciplines, count: weekHistory.length };
+  function getDisciplineColor(discipline) {
+    return DISCIPLINES[discipline] || '#888';
   }
-
-  const grid = getWeekGrid();
-  const stats = getWeekStats();
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>This Week</Text>
         <Text style={styles.subtitle}>
-          {stats.count} sessions · {Math.round(stats.totalDuration / 60)}h{' '}
-          {stats.totalDuration % 60}m
+          {weekNumber != null ? `Week ${weekNumber} of training plan` : `Phase: ${phase}`}
         </Text>
       </View>
 
-      {/* Week Grid */}
+      {/* Week Grid — one dot per prescribed day */}
       <View style={styles.gridContainer}>
-        {grid.map((day, i) => (
+        {weekGrid.map((gridDay, i) => (
           <View key={i} style={styles.gridDay}>
-            <Text style={styles.gridDayLabel}>{day.day}</Text>
+            <Text style={[styles.gridDayLabel, gridDay.isToday && styles.gridDayLabelToday]}>
+              {gridDay.day}
+            </Text>
             <View style={styles.gridCell}>
-              {day.workouts.length > 0 ? (
-                day.workouts.map((w, j) => (
-                  <View
-                    key={j}
-                    style={[
-                      styles.gridDot,
-                      {
-                        backgroundColor: DISCIPLINES[w.discipline?.toLowerCase()] || '#888',
-                      },
-                    ]}
-                  />
-                ))
-              ) : (
-                <View style={[styles.gridDot, styles.gridDotEmpty]} />
-              )}
+              <View
+                style={[
+                  styles.gridDot,
+                  {
+                    backgroundColor: getDisciplineColor(gridDay.discipline),
+                    opacity: getDotOpacity(gridDay),
+                  },
+                ]}
+              />
+              {gridDay.completed && <Text style={styles.completedMark}>✓</Text>}
             </View>
           </View>
         ))}
@@ -132,7 +208,7 @@ export default function WeeklyScreen() {
                     styles.breakdownBar,
                     {
                       width: `${pct}%`,
-                      backgroundColor: DISCIPLINES[discipline] || '#888',
+                      backgroundColor: getDisciplineColor(discipline),
                     },
                   ]}
                 />
@@ -145,6 +221,14 @@ export default function WeeklyScreen() {
           <Text style={styles.emptyText}>No completed workouts yet</Text>
         )}
       </View>
+
+      {/* Plan Settings Button */}
+      <TouchableOpacity
+        style={styles.planSettingsButton}
+        onPress={() => navigation.navigate('PlanSettings')}
+      >
+        <Text style={styles.planSettingsButtonText}>PLAN SETTINGS</Text>
+      </TouchableOpacity>
 
       {/* AI Weekly Debrief */}
       <View style={styles.debriefCard}>
@@ -207,18 +291,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
   },
+  gridDayLabelToday: {
+    color: '#e8ff47',
+  },
   gridCell: {
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   gridDot: {
     width: 28,
     height: 28,
     borderRadius: 14,
   },
-  gridDotEmpty: {
-    backgroundColor: '#222',
-    opacity: 0.4,
+  completedMark: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
   },
   legendRow: {
     flexDirection: 'row',
@@ -289,6 +378,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     paddingVertical: 12,
+  },
+  planSettingsButton: {
+    borderWidth: 2,
+    borderColor: '#888',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  planSettingsButtonText: {
+    color: '#888',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   debriefCard: {
     backgroundColor: '#1a1a2e',

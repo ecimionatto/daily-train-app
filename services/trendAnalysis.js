@@ -225,3 +225,154 @@ function avg(arr) {
 function sumMinutes(workouts) {
   return workouts.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
 }
+
+// ---------------------------------------------------------------------------
+// PACE INSIGHTS & ACHIEVEMENT DETECTION
+// ---------------------------------------------------------------------------
+
+const PACE_DISCIPLINES = ['run'];
+const DISTANCE_DISCIPLINES = ['run', 'bike', 'swim'];
+
+/**
+ * Format pace in min/km as "M:SS /km".
+ */
+function formatPace(minPerKm) {
+  if (!minPerKm || minPerKm <= 0) return null;
+  const mins = Math.floor(minPerKm);
+  const secs = Math.round((minPerKm - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')} /km`;
+}
+
+/**
+ * Scan completedWorkouts and derive pace PRs, distance PRs, and streak info.
+ *
+ * Returns an object with:
+ * - pacePRs:       { run: { value, date, formatted } }  — best (lowest) pace per discipline
+ * - distancePRs:   { run, bike, swim }  — longest distance in metres
+ * - longestSession: { discipline, durationMinutes, date }
+ * - consistencyStreak: number of consecutive days with any workout (from most recent backwards)
+ * - recentPRs:     array of PRs set in the last 30 days (for congratulations)
+ */
+export function detectPaceAchievements(completedWorkouts) {
+  if (!completedWorkouts || completedWorkouts.length === 0) {
+    return {
+      pacePRs: {},
+      distancePRs: {},
+      longestSession: null,
+      consistencyStreak: 0,
+      recentPRs: [],
+    };
+  }
+
+  const sorted = [...completedWorkouts].sort(
+    (a, b) => new Date(a.startDate) - new Date(b.startDate)
+  );
+
+  const pacePRs = {};
+  const distancePRs = {};
+  let longestSession = null;
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const recentPRs = [];
+
+  sorted.forEach((w) => {
+    const disc = w.discipline;
+    const wDate = w.startDate ? new Date(w.startDate) : null;
+
+    // Pace PRs (lower = faster = better) — run only (pace is meaningful for running)
+    if (PACE_DISCIPLINES.includes(disc) && w.avgPace && w.avgPace > 0) {
+      const prev = pacePRs[disc];
+      if (!prev || w.avgPace < prev.value) {
+        pacePRs[disc] = { value: w.avgPace, date: wDate, formatted: formatPace(w.avgPace) };
+        if (wDate && wDate.getTime() >= thirtyDaysAgo) {
+          recentPRs.push({
+            type: 'pace',
+            discipline: disc,
+            formatted: formatPace(w.avgPace),
+            date: wDate,
+          });
+        }
+      }
+    }
+
+    // Distance PRs (longer = better)
+    if (DISTANCE_DISCIPLINES.includes(disc) && w.distanceMeters && w.distanceMeters > 0) {
+      const prev = distancePRs[disc];
+      if (!prev || w.distanceMeters > prev.value) {
+        distancePRs[disc] = {
+          value: w.distanceMeters,
+          date: wDate,
+          km: Math.round(w.distanceMeters / 100) / 10,
+        };
+        if (wDate && wDate.getTime() >= thirtyDaysAgo) {
+          recentPRs.push({
+            type: 'distance',
+            discipline: disc,
+            formatted: `${Math.round(w.distanceMeters / 100) / 10} km`,
+            date: wDate,
+          });
+        }
+      }
+    }
+
+    // Longest single session (by duration)
+    if (!longestSession || (w.durationMinutes || 0) > (longestSession.durationMinutes || 0)) {
+      longestSession = { discipline: disc, durationMinutes: w.durationMinutes, date: wDate };
+    }
+  });
+
+  // Consistency streak — count consecutive days (backwards from today) with at least one workout
+  const workoutDates = new Set(
+    sorted.map((w) => w.startDate && new Date(w.startDate).toDateString()).filter(Boolean)
+  );
+  let streak = 0;
+  const check = new Date();
+  check.setHours(0, 0, 0, 0);
+  while (workoutDates.has(check.toDateString())) {
+    streak += 1;
+    check.setDate(check.getDate() - 1);
+  }
+
+  return { pacePRs, distancePRs, longestSession, consistencyStreak: streak, recentPRs };
+}
+
+/**
+ * Format achievement data into a compact text block for coach system prompt injection.
+ * Kept ≤ 150 chars per line to preserve token budget.
+ *
+ * @param {{ pacePRs, distancePRs, longestSession, consistencyStreak, recentPRs }} achievements
+ * @returns {string}
+ */
+export function formatAchievementsForCoach(achievements) {
+  if (!achievements) return '';
+
+  const lines = [];
+
+  if (achievements.consistencyStreak >= 3) {
+    lines.push(
+      `Consistency streak: ${achievements.consistencyStreak} days in a row — congratulate this.`
+    );
+  }
+
+  Object.entries(achievements.pacePRs).forEach(([disc, pr]) => {
+    if (pr?.formatted) {
+      lines.push(`Best ${disc} pace (all-time): ${pr.formatted}`);
+    }
+  });
+
+  Object.entries(achievements.distancePRs).forEach(([disc, dr]) => {
+    if (dr?.km) {
+      lines.push(`Longest ${disc} (all-time): ${dr.km} km`);
+    }
+  });
+
+  if (achievements.recentPRs.length > 0) {
+    const prLabels = achievements.recentPRs
+      .slice(-3) // cap at 3 to save tokens
+      .map((p) => `${p.discipline} ${p.type} PR (${p.formatted})`)
+      .join(', ');
+    lines.push(`RECENT PRs (last 30 days — acknowledge and congratulate): ${prLabels}`);
+  }
+
+  if (lines.length === 0) return '';
+  return `ATHLETE ACHIEVEMENTS:\n${lines.join('\n')}`;
+}

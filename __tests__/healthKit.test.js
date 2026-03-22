@@ -5,6 +5,7 @@ import {
   calculatePace,
   calculateEffortScore,
   deduplicateWorkouts,
+  buildKarvonenZones,
 } from '../services/healthKit';
 
 describe('calculateReadiness', () => {
@@ -12,26 +13,37 @@ describe('calculateReadiness', () => {
     expect(calculateReadiness(null)).toBeNull();
   });
 
-  it('returns baseline 50 when all metrics are missing', () => {
-    expect(calculateReadiness({})).toBe(50);
+  it('returns null when all metrics are missing', () => {
+    // New behaviour: all-null data = no signal = null (not a false 50)
+    expect(calculateReadiness({})).toBeNull();
   });
 
   it('returns high score for excellent metrics', () => {
+    // HRV 85ms (≥75 → +23) + RHR 46 (≤50 → +20) + sleep 8.5h (≥8.5 → +15) + baseline 35 = 93
     const data = { hrv: 85, restingHR: 46, sleepHours: 8.5 };
+    const score = calculateReadiness(data);
+    expect(score).toBe(93);
+  });
+
+  it('returns score of 100 for truly exceptional metrics', () => {
+    // HRV 105ms (≥100 → +30) + RHR 43 (≤44 → +25) + sleep 9h (≥8.5 → +15) + baseline 35 = 105 → 100
+    const data = { hrv: 105, restingHR: 43, sleepHours: 9 };
     const score = calculateReadiness(data);
     expect(score).toBe(100);
   });
 
   it('returns low score for poor metrics', () => {
+    // HRV 20ms (<40 → +3) + RHR 70 (≤70 → +2) + sleep 5h (<6 → +0) + baseline 35 = 40
     const data = { hrv: 20, restingHR: 70, sleepHours: 5 };
     const score = calculateReadiness(data);
-    expect(score).toBe(55);
+    expect(score).toBe(40);
   });
 
-  it('handles partial data', () => {
+  it('handles partial data — only HRV known', () => {
+    // HRV 60ms (≥55 → +16) + baseline 35 = 51 (resting HR and sleep contribute 0 when null)
     const data = { hrv: 60 };
     const score = calculateReadiness(data);
-    expect(score).toBe(75);
+    expect(score).toBe(51);
   });
 });
 
@@ -286,5 +298,63 @@ describe('deduplicateWorkouts', () => {
 
   it('returns empty array for empty input', () => {
     expect(deduplicateWorkouts([])).toEqual([]);
+  });
+});
+
+describe('buildKarvonenZones', () => {
+  it('returns null when maxHR is missing', () => {
+    expect(buildKarvonenZones(null, 55)).toBeNull();
+  });
+
+  it('returns null when restingHR is missing', () => {
+    expect(buildKarvonenZones(185, null)).toBeNull();
+  });
+
+  it('returns null when maxHR equals restingHR', () => {
+    expect(buildKarvonenZones(55, 55)).toBeNull();
+  });
+
+  it('returns null when maxHR is less than restingHR', () => {
+    expect(buildKarvonenZones(50, 55)).toBeNull();
+  });
+
+  it('returns 5 zones for valid inputs', () => {
+    const result = buildKarvonenZones(185, 55);
+    expect(result).not.toBeNull();
+    expect(result.zones).toHaveLength(5);
+  });
+
+  it('computes HRR correctly', () => {
+    const result = buildKarvonenZones(185, 55);
+    expect(result.hrr).toBe(130); // 185 - 55
+  });
+
+  it('sets method to karvonen', () => {
+    const result = buildKarvonenZones(185, 55);
+    expect(result.method).toBe('karvonen');
+  });
+
+  it('zone 1 min is at 50% HRR + restingHR', () => {
+    const result = buildKarvonenZones(185, 55);
+    // hrr = 130, zone1 min = 130 * 0.5 + 55 = 120
+    expect(result.zones[0].min).toBe(120);
+  });
+
+  it('zone 5 max equals maxHR', () => {
+    const result = buildKarvonenZones(185, 55);
+    // zone5 max = hrr * 1.0 + restingHR = 130 + 55 = 185
+    expect(result.zones[4].max).toBe(185);
+  });
+
+  it('zones are labeled correctly', () => {
+    const result = buildKarvonenZones(185, 55);
+    const labels = result.zones.map((z) => z.label);
+    expect(labels).toEqual(['Recovery', 'Aerobic', 'Tempo', 'Threshold', 'VO2 Max']);
+  });
+
+  it('zones have correct zone numbers', () => {
+    const result = buildKarvonenZones(185, 55);
+    const zoneNums = result.zones.map((z) => z.zone);
+    expect(zoneNums).toEqual([1, 2, 3, 4, 5]);
   });
 });

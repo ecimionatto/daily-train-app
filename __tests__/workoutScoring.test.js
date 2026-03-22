@@ -119,9 +119,10 @@ describe('calculateOverallReadiness', () => {
     expect(result).toBe(100);
   });
 
-  it('uses defaults for null components', () => {
+  it('uses defaults of 40 for null components (unknown ≠ neutral)', () => {
+    // All null → 40*0.4 + 40*0.35 + 40*0.25 = 40
     const result = calculateOverallReadiness(null, null, null);
-    expect(result).toBe(50);
+    expect(result).toBe(40);
   });
 
   it('weights health at 40%', () => {

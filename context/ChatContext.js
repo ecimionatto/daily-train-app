@@ -351,6 +351,7 @@ export function ChatProvider({ children }) {
           todayWorkout,
           recentScore,
           overallReadiness,
+          completedWorkouts: completedWorkouts || [],
           workoutHistory: (completedWorkouts?.length
             ? completedWorkouts
             : workoutHistory || []

@@ -58,6 +58,36 @@ const WORKOUT_BRIEFS = {
   },
 };
 
+/**
+ * Determine completion status for a prescribed discipline given all workouts logged that day.
+ * Returns 'completed' | 'partial' | null.
+ */
+function getCompletionStatus(discipline, dayWorkouts) {
+  if (!dayWorkouts?.length) return null;
+
+  const hasBike = dayWorkouts.some((w) => w.discipline === 'bike');
+  const hasRun = dayWorkouts.some((w) => w.discipline === 'run');
+  const hasSwim = dayWorkouts.some((w) => w.discipline === 'swim');
+
+  switch (discipline) {
+    case 'brick':
+      if (hasBike && hasRun) return 'completed';
+      if (hasBike || hasRun) return 'partial';
+      return null;
+    case 'bike':
+      return hasBike ? 'completed' : 'partial';
+    case 'run':
+      return hasRun ? 'completed' : 'partial';
+    case 'swim':
+      return hasSwim ? 'completed' : 'partial';
+    case 'rest':
+      // Any workout on a rest day = partial (trained when shouldn't have)
+      return 'partial';
+    default:
+      return dayWorkouts.some((w) => w.discipline === discipline) ? 'completed' : 'partial';
+  }
+}
+
 function getWorkoutBrief(discipline, phase, trends) {
   const base = WORKOUT_BRIEFS[discipline]?.[phase] || null;
   if (!base || discipline === 'rest') return base;
@@ -158,10 +188,14 @@ export default function CalendarScreen({ navigation }) {
       const isToday = isSameDay(date, today);
       const isPast = date < today && !isToday;
 
-      const completed = completedWorkouts?.find((w) => {
-        const wDate = new Date(w.startDate);
-        return isSameDay(wDate, date);
-      });
+      const dayWorkouts =
+        completedWorkouts?.filter((w) => {
+          const wDate = new Date(w.startDate);
+          return isSameDay(wDate, date);
+        }) || [];
+
+      const completionStatus =
+        isPast || isToday ? getCompletionStatus(discipline, dayWorkouts) : null;
 
       days.push({
         date,
@@ -172,7 +206,8 @@ export default function CalendarScreen({ navigation }) {
         isToday,
         isPast,
         isRaceDay: isSameDay(date, new Date(raceDate)),
-        completed: completed || null,
+        dayWorkouts,
+        completionStatus,
       });
 
       current.setDate(current.getDate() + 1);
@@ -285,16 +320,25 @@ export default function CalendarScreen({ navigation }) {
           </View>
 
           <View style={styles.dayStatusCol}>
-            {day.completed ? (
+            {day.completionStatus === 'completed' ? (
               <View style={styles.completedBadge}>
                 <Text style={styles.completedIcon}>✓</Text>
-                <Text style={styles.completedDuration}>
-                  {formatDuration(day.completed.durationMinutes)}
-                </Text>
+                {day.dayWorkouts.length > 0 && (
+                  <Text style={styles.completedDuration}>
+                    {formatDuration(
+                      day.dayWorkouts.reduce((sum, w) => sum + (w.durationMinutes || 0), 0)
+                    )}
+                  </Text>
+                )}
+              </View>
+            ) : day.completionStatus === 'partial' ? (
+              <View style={styles.partialBadge}>
+                <Text style={styles.partialIcon}>~</Text>
+                <Text style={styles.partialLabel}>partial</Text>
               </View>
             ) : day.isToday ? (
               <Text style={styles.todayLabel}>TODAY</Text>
-            ) : day.isPast && !day.completed ? (
+            ) : day.isPast ? (
               <Text style={styles.missedLabel}>—</Text>
             ) : (
               <Text style={styles.chevron}>›</Text>
@@ -386,8 +430,12 @@ function WorkoutDetailModal({ day, workout, generating, onClose }) {
           <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
             {day.isRaceDay ? (
               <RaceDayContent />
-            ) : day.completed ? (
-              <CompletedContent completed={day.completed} />
+            ) : day.dayWorkouts?.length > 0 ? (
+              <CompletedContent
+                dayWorkouts={day.dayWorkouts}
+                completionStatus={day.completionStatus}
+                prescribedDiscipline={day.discipline}
+              />
             ) : generating ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator color="#e8ff47" size="large" />
@@ -412,22 +460,46 @@ function WorkoutDetailModal({ day, workout, generating, onClose }) {
   );
 }
 
-function CompletedContent({ completed }) {
+function CompletedContent({ dayWorkouts, completionStatus, prescribedDiscipline }) {
+  const isPartial = completionStatus === 'partial';
+  const titleColor = isPartial ? '#ff9f43' : '#47ffb2';
+  const titleText = isPartial ? 'Partial Completion' : 'Completed';
+
+  const missingNote =
+    isPartial && prescribedDiscipline === 'brick'
+      ? dayWorkouts.some((w) => w.discipline === 'bike')
+        ? 'Missing: Run leg'
+        : 'Missing: Bike leg'
+      : isPartial
+        ? `Prescribed: ${prescribedDiscipline} — different discipline logged`
+        : null;
+
   return (
     <View>
       <View style={styles.completedHeader}>
-        <Text style={styles.completedTitle}>Completed Workout</Text>
+        <Text style={[styles.completedTitle, { color: titleColor }]}>{titleText}</Text>
+        {missingNote ? <Text style={styles.partialNote}>{missingNote}</Text> : null}
       </View>
-      <View style={styles.statsRow}>
-        <StatItem label="Duration" value={formatDuration(completed.durationMinutes)} />
-        {completed.calories ? (
-          <StatItem label="Calories" value={`${Math.round(completed.calories)}`} />
-        ) : null}
-        {completed.distanceMeters ? (
-          <StatItem label="Distance" value={`${(completed.distanceMeters / 1000).toFixed(1)} km`} />
-        ) : null}
-      </View>
-      <Text style={styles.sourceText}>Source: {completed.source || 'Apple Health'}</Text>
+      {dayWorkouts.map((workout, i) => (
+        <View key={workout.id || i} style={styles.workoutEntry}>
+          <Text style={styles.workoutEntryDiscipline}>
+            {workout.discipline.charAt(0).toUpperCase() + workout.discipline.slice(1)}
+          </Text>
+          <View style={styles.statsRow}>
+            <StatItem label="Duration" value={formatDuration(workout.durationMinutes)} />
+            {workout.calories ? (
+              <StatItem label="Calories" value={`${Math.round(workout.calories)}`} />
+            ) : null}
+            {workout.distanceMeters ? (
+              <StatItem
+                label="Distance"
+                value={`${(workout.distanceMeters / 1000).toFixed(1)} km`}
+              />
+            ) : null}
+          </View>
+        </View>
+      ))}
+      <Text style={styles.sourceText}>Source: Apple Health</Text>
     </View>
   );
 }
@@ -619,6 +691,20 @@ const styles = StyleSheet.create({
     color: '#47ffb2',
     marginTop: 2,
   },
+  partialBadge: {
+    alignItems: 'flex-end',
+  },
+  partialIcon: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ff9f43',
+  },
+  partialLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#ff9f43',
+    marginTop: 2,
+  },
   todayLabel: {
     fontSize: 11,
     fontWeight: '800',
@@ -706,6 +792,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#47ffb2',
+  },
+  partialNote: {
+    fontSize: 12,
+    color: '#ff9f43',
+    marginTop: 4,
+  },
+  workoutEntry: {
+    marginBottom: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: '#1a1a2e',
+    paddingLeft: 10,
+  },
+  workoutEntryDiscipline: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#aaa',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   statsRow: {
     flexDirection: 'row',

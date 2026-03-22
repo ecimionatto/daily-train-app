@@ -1,17 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { fetchHealthHistory } from '../services/healthKit';
 
 export default function RecoveryScreen() {
   const { healthData, readinessScore, loadHealthData } = useApp();
   const [history, setHistory] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadHealthData();
-    loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadHealthData();
+      loadHistory();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
 
   async function loadHistory() {
     try {
@@ -20,6 +24,12 @@ export default function RecoveryScreen() {
     } catch (e) {
       console.warn('Failed to load health history:', e);
     }
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await Promise.all([loadHealthData(), loadHistory()]);
+    setRefreshing(false);
   }
 
   function renderSparkline(data, color, maxVal) {
@@ -61,7 +71,12 @@ export default function RecoveryScreen() {
   const sleepValues = history.map((d) => d.sleepHours).filter(Boolean);
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#47ffb2" />
+      }
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Recovery</Text>
         <Text style={styles.subtitle}>14-Day Health Trends</Text>

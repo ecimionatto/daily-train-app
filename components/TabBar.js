@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TAB_CONFIG = {
   Dashboard: { label: 'Home', icon: '◉' },
-  Workout: { label: 'Train', icon: '▶' },
+  HRZonesTab: { label: 'Zones', icon: '♡' },
   Recovery: { label: 'Recovery', icon: '♥' },
   Weekly: { label: 'Week', icon: '▦' },
   Coach: { label: 'Coach', icon: '●' },

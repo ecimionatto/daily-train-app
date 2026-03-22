@@ -228,6 +228,13 @@ export default function DashboardScreen({ navigation }) {
             </View>
           )}
 
+          {/* Score explanation */}
+          {overallReadiness && (
+            <Text style={styles.readinessExplain}>
+              {buildReadinessExplanation(overallReadiness, healthData)}
+            </Text>
+          )}
+
           <View style={styles.metricsRow}>
             <View style={styles.metric}>
               <Text style={styles.metricValue}>{healthData?.restingHR ?? '--'}</Text>
@@ -505,6 +512,54 @@ function renderWorkoutSections(workout) {
   ));
 }
 
+/**
+ * Build a one-line explanation of what's driving the readiness score.
+ * Surfaces the dominant positive AND any limiting factors so the athlete
+ * understands the number at a glance.
+ */
+function buildReadinessExplanation(overallReadiness, healthData) {
+  const parts = [];
+
+  // Health component breakdown
+  const hrv = healthData?.hrv;
+  const rhr = healthData?.restingHR;
+  const sleep = healthData?.sleepHours;
+
+  if (hrv != null) {
+    if (hrv >= 75) parts.push(`HRV ${hrv}ms ✓`);
+    else if (hrv < 40) parts.push(`HRV ${hrv}ms ↓ (fatigue signal)`);
+    else parts.push(`HRV ${hrv}ms`);
+  } else {
+    parts.push('HRV not recorded');
+  }
+
+  if (rhr != null) {
+    if (rhr <= 50) parts.push(`RHR ${rhr}bpm ✓`);
+    else if (rhr > 65) parts.push(`RHR ${rhr}bpm ↑ (elevated)`);
+    else parts.push(`RHR ${rhr}bpm`);
+  } else {
+    parts.push('RHR not recorded');
+  }
+
+  if (sleep != null) {
+    if (sleep >= 7.5) parts.push(`sleep ${sleep.toFixed(1)}h ✓`);
+    else if (sleep < 6) parts.push(`sleep ${sleep.toFixed(1)}h ↓ (insufficient)`);
+    else parts.push(`sleep ${sleep.toFixed(1)}h`);
+  } else {
+    parts.push('sleep not recorded');
+  }
+
+  const trainingNote =
+    overallReadiness.compliance >= 80
+      ? 'consistent training'
+      : overallReadiness.compliance < 50
+        ? 'low recent training'
+        : 'moderate training';
+  parts.push(trainingNote);
+
+  return parts.join(' · ');
+}
+
 function getReadinessColor(score) {
   if (score >= 75) return '#47ffb2';
   if (score >= 55) return '#e8ff47';
@@ -704,6 +759,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginTop: 2,
+  },
+  readinessExplain: {
+    color: '#666',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 12,
+    marginTop: -4,
   },
   subScoreRow: {
     flexDirection: 'row',
