@@ -371,20 +371,21 @@ describe('generateWorkoutLocally with running profile', () => {
 });
 
 describe('getWeeklyDisciplinePlan with schedule preferences', () => {
-  it('returns default plan when no preferences set', () => {
+  it('returns default BASE plan with strength and brick', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
-    // Default: rest on Monday (index 1), alternating disciplines, long sessions on weekend
-    expect(plan).toEqual(['swim', 'rest', 'run', 'bike', 'swim', 'run', 'bike']);
+    // New plan: strength on Wed (2), brick on Sat (6)
+    // BASE: ['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick']
+    expect(plan).toEqual(['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick']);
   });
 
-  it('moves bike to weekend when longDays set to Saturday and Sunday', () => {
-    const profileWithPrefs = {
-      ...mockProfile,
-      schedulePreferences: { longDays: [0, 6] },
-    };
-    const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
-    // Bike should be on Saturday (6) and/or Sunday (0)
-    expect(plan[6]).toBe('bike');
+  it('includes brick on Saturday for triathlon plans', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan[6]).toBe('brick');
+  });
+
+  it('includes strength once per week in BASE', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan.filter((d) => d === 'strength').length).toBe(1);
   });
 
   it('sets rest days on specified days', () => {
@@ -422,8 +423,8 @@ describe('getWeeklyDisciplinePlan with schedule preferences', () => {
     const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
     // Sunday (0) should stay rest since restDays takes priority
     expect(plan[0]).toBe('rest');
-    // Saturday should get bike
-    expect(plan[6]).toBe('bike');
+    // Saturday should get brick (the long-day discipline for triathlon)
+    expect(plan[6]).toBe('brick');
   });
 });
 

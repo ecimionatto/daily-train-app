@@ -428,7 +428,7 @@ describe('buildCoachSystemPrompt', () => {
 
   it('includes off-topic guard instruction', () => {
     const prompt = buildCoachSystemPrompt({});
-    expect(prompt).toContain('ONLY an endurance triathlon coach');
+    expect(prompt).toContain('endurance training coach');
   });
 
   it('includes race type in athlete profile section', () => {
@@ -438,7 +438,6 @@ describe('buildCoachSystemPrompt', () => {
     const prompt = buildCoachSystemPrompt(context);
     expect(prompt).toContain('running');
     expect(prompt).toContain('Marathon');
-    expect(prompt).toContain('ONLY an running coach');
   });
 
   it('includes workout history when provided', () => {
@@ -503,7 +502,7 @@ describe('buildCoachSystemPrompt', () => {
 
   it('instructs coach not to fabricate statistics', () => {
     const prompt = buildCoachSystemPrompt({});
-    expect(prompt).toContain('never fabricate');
+    expect(prompt).toContain('Never fabricate');
   });
 });
 

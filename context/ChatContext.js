@@ -44,6 +44,7 @@ export function ChatProvider({ children }) {
     completedWorkouts,
     saveProfile,
     clearTodayWorkout,
+    resetTrainingPlan,
     trends,
   } = useApp();
 
@@ -319,6 +320,7 @@ export function ChatProvider({ children }) {
       trends,
       onWorkoutSwap: swapTodayWorkout,
       onProfileUpdate: onProfileUpdate,
+      onPlanRegenerate: resetTrainingPlan,
     };
   }
 

@@ -797,20 +797,40 @@ function generateRuleBasedWorkout({
   return buildWorkout(discipline, adjustedDuration, effectiveScore, phase, profile);
 }
 
+/**
+ * Returns true if the current week is a prescribed rest week.
+ * Uses a 4-week mesocycle: 3 build weeks + 1 rest week, counting back from race day.
+ * Rest weeks: 30-40% volume reduction, Z1-Z2 only, no high-intensity work.
+ */
+export function isRestWeek(daysToRace) {
+  if (!daysToRace || daysToRace <= 0) return false;
+  const weeksOut = Math.ceil(daysToRace / 7);
+  // Weeks 4, 8, 12, 16... from race = rest weeks
+  return weeksOut % 4 === 0;
+}
+
 export function getWeeklyDisciplinePlan(phase, profile) {
   if (isRunningOnly(profile)) {
     const basePlan = getRunningWeekPlan(phase);
     return applySchedulePreferences(basePlan, profile, 'run');
   }
-  const weak = profile.weakestDiscipline?.toLowerCase() || 'swim';
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
-  // Rules: no two consecutive same discipline; long sessions & bricks on weekends (Sat=6, Sun=0).
-  // BUILD/PEAK: Saturday is a brick session (bike → run transition).
+  // Plan rules (per agentConstitution PLAN_RULES):
+  //   - Strength 1x/week in BASE/BUILD/PEAK
+  //   - Brick on Saturday (bike+run combined - contributes to both discipline counts)
+  //   - No consecutive same discipline
+  //   - Aim for each of swim/bike/run >= 3x/week (brick counts for both bike+run)
+  //   - TAPER/RACE_WEEK: volume drop, no strength
   const plans = {
-    BASE: ['swim', 'rest', 'run', 'bike', 'swim', 'run', 'bike'],
-    BUILD: ['run', 'rest', 'swim', 'bike', 'run', 'rest', 'brick'],
-    PEAK: ['swim', 'rest', 'run', 'bike', weak, 'rest', 'brick'],
-    TAPER: ['bike', 'rest', 'swim', 'run', 'bike', 'rest', 'run'],
+    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
+    BASE: ['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick'],
+    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
+    BUILD: ['run', 'swim', 'bike', 'strength', 'run', 'swim', 'brick'],
+    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
+    PEAK: ['swim', 'bike', 'run', 'strength', 'swim', 'run', 'brick'],
+    // reduced volume, 2 rest days, no strength
+    TAPER: ['bike', 'rest', 'swim', 'run', 'rest', 'swim', 'run'],
+    // race week - minimal load
     RACE_WEEK: ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
   };
   const basePlan = plans[phase] || plans.BASE;

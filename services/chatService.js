@@ -12,6 +12,7 @@ import {
   buildSkillsSection,
   COACH_KNOWLEDGE,
   COACH_CONSTRAINTS,
+  PLAN_RULES,
 } from './agentConstitution';
 
 const FATIGUE_KEYWORDS = [
@@ -418,6 +419,11 @@ export async function getCoachResponse(userMessage, context, conversationHistory
 
   const category = classifyMessage(userMessage);
 
+  // Handle full plan regeneration requests
+  if (category === 'plan_regeneration') {
+    return handlePlanRegeneration(context);
+  }
+
   // Handle profile changes (race date, goals)
   if (category === 'profile_change' && context.onProfileUpdate) {
     return handleProfileChange(userMessage, context);
@@ -706,6 +712,27 @@ async function handleWorkoutSwap(userMessage, context) {
   // Fallback: give advice without swapping
   const score = readinessScore || 65;
   return buildWorkoutModResponse(todayWorkout, score);
+}
+
+/**
+ * Handle a plan regeneration request.
+ * Calls onPlanRegenerate if available (clears all cached workouts + history),
+ * otherwise falls back to clearing just today's workout via onProfileUpdate.
+ */
+async function handlePlanRegeneration(context) {
+  try {
+    if (context.onPlanRegenerate) {
+      await context.onPlanRegenerate();
+      return "Your training plan has been reset and will regenerate fresh from your current profile and race date. Head to the Dashboard to load today's new workout.";
+    }
+    if (context.onProfileUpdate && context.athleteProfile) {
+      await context.onProfileUpdate(context.athleteProfile);
+      return 'Your plan cache has been cleared. Head to the Dashboard — your workout will regenerate based on your current profile and race target.';
+    }
+  } catch (e) {
+    // fall through to safe message
+  }
+  return 'To regenerate your plan, go to the Dashboard and pull down to refresh. Your workouts will be rebuilt based on your current race date and fitness data.';
 }
 
 /**
@@ -1254,8 +1281,9 @@ ${zonesLine}`);
     sections.push(insightParts.join('\n'));
   }
 
-  // Coaching knowledge (from agentConstitution — always injected)
+  // Coaching knowledge + plan rules (from agentConstitution — always injected)
   sections.push(`COACHING KNOWLEDGE:\n${COACH_KNOWLEDGE}`);
+  sections.push(PLAN_RULES);
 
   if (conversationSummary) {
     sections.push(conversationSummary);
@@ -1487,6 +1515,27 @@ export function classifyMessage(message) {
         'pulled out',
         'my race moved',
         'race has moved',
+      ],
+    },
+    {
+      key: 'plan_regeneration',
+      keywords: [
+        'regenerate my plan',
+        'regenerate the plan',
+        'generate a new plan',
+        'generate new plan',
+        'rebuild my plan',
+        'rebuild the plan',
+        'reset my plan',
+        'reset the plan',
+        'redo my plan',
+        'new training plan',
+        'start fresh',
+        'fresh start',
+        'start over',
+        'restart my plan',
+        'create a new plan',
+        'make me a new plan',
       ],
     },
     {
