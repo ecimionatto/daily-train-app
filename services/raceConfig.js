@@ -36,7 +36,7 @@ const GOAL_TIMES = {
 };
 
 const DISCIPLINES_FOR_RACE_TYPE = {
-  triathlon: ['swim', 'bike', 'run', 'strength', 'rest'],
+  triathlon: ['swim', 'bike', 'run', 'brick', 'swim+bike', 'strength', 'rest'],
   running: ['run', 'strength', 'rest'],
 };
 

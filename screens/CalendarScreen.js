@@ -42,6 +42,13 @@ const WORKOUT_BRIEFS = {
     TAPER: 'Easy brick — short transition',
     RACE_WEEK: null,
   },
+  'swim+bike': {
+    BASE: 'AM swim + easy PM ride (two-a-day)',
+    BUILD: 'AM moderate swim + easy PM ride',
+    PEAK: 'AM threshold swim + easy PM ride',
+    TAPER: null,
+    RACE_WEEK: null,
+  },
   strength: {
     BASE: 'Functional strength & core',
     BUILD: 'Strength endurance circuit',
@@ -74,6 +81,10 @@ function getCompletionStatus(discipline, dayWorkouts) {
       if (hasBike && hasRun) return 'completed';
       if (hasBike || hasRun) return 'partial';
       return null;
+    case 'swim+bike':
+      if (hasSwim && hasBike) return 'completed';
+      if (hasSwim || hasBike) return 'partial';
+      return null;
     case 'bike':
       return hasBike ? 'completed' : 'partial';
     case 'run':
@@ -103,6 +114,7 @@ const DISCIPLINE_COLORS = {
   bike: '#e8ff47',
   run: '#47ffb2',
   brick: '#ff9f43',
+  'swim+bike': '#b47fff',
   strength: '#ff6b6b',
   rest: '#333',
 };
@@ -301,13 +313,20 @@ export default function CalendarScreen({ navigation }) {
                 <View style={styles.disciplineRow}>
                   <View style={[styles.disciplineDot, { backgroundColor: color }]} />
                   <Text style={styles.disciplineText}>
-                    {day.discipline === 'brick'
-                      ? 'Bike + Run'
-                      : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
+                    {day.discipline === 'swim+bike'
+                      ? 'Swim + Bike'
+                      : day.discipline === 'brick'
+                        ? 'Bike + Run'
+                        : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
                   </Text>
                   {day.discipline === 'brick' && (
                     <View style={styles.brickBadge}>
                       <Text style={styles.brickBadgeText}>BRICK</Text>
+                    </View>
+                  )}
+                  {day.discipline === 'swim+bike' && (
+                    <View style={styles.brickBadge}>
+                      <Text style={styles.brickBadgeText}>2-A-DAY</Text>
                     </View>
                   )}
                 </View>
@@ -415,9 +434,11 @@ function WorkoutDetailModal({ day, workout, generating, onClose }) {
               <View style={styles.disciplineRow}>
                 <View style={[styles.disciplineDot, { backgroundColor: color }]} />
                 <Text style={styles.modalDiscipline}>
-                  {day.discipline === 'brick'
-                    ? 'Bike + Run (Brick)'
-                    : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
+                  {day.discipline === 'swim+bike'
+                    ? 'Swim + Bike (2-a-Day)'
+                    : day.discipline === 'brick'
+                      ? 'Bike + Run (Brick)'
+                      : day.discipline.charAt(0).toUpperCase() + day.discipline.slice(1)}
                 </Text>
                 <Text style={styles.modalPhase}> · {PHASE_LABELS[day.phase]}</Text>
               </View>

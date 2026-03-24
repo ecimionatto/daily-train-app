@@ -78,7 +78,9 @@ describe('generateWorkoutLocally', () => {
       daysToRace: 120,
     });
 
-    expect(['swim', 'bike', 'run', 'strength', 'rest']).toContain(workout.discipline);
+    expect(['swim', 'bike', 'run', 'brick', 'swim+bike', 'strength', 'rest']).toContain(
+      workout.discipline
+    );
   });
 
   it('adjusts duration up when readiness is high', async () => {
@@ -371,11 +373,10 @@ describe('generateWorkoutLocally with running profile', () => {
 });
 
 describe('getWeeklyDisciplinePlan with schedule preferences', () => {
-  it('returns default BASE plan with strength and brick', () => {
+  it('returns default BASE plan with long run Sunday, swim+bike double day, strength and brick', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
-    // New plan: strength on Wed (2), brick on Sat (6)
-    // BASE: ['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick']
-    expect(plan).toEqual(['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick']);
+    // BASE: Sun=run, Mon=swim+bike, Tue=run, Wed=strength, Thu=run, Fri=swim, Sat=brick
+    expect(plan).toEqual(['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick']);
   });
 
   it('includes brick on Saturday for triathlon plans', () => {
@@ -386,6 +387,23 @@ describe('getWeeklyDisciplinePlan with schedule preferences', () => {
   it('includes strength once per week in BASE', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
     expect(plan.filter((d) => d === 'strength').length).toBe(1);
+  });
+
+  it('includes swim+bike double session on Monday in BASE', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan[1]).toBe('swim+bike');
+  });
+
+  it('includes swim+bike on Mon and Wed in BUILD', () => {
+    const plan = getWeeklyDisciplinePlan('BUILD', mockProfile);
+    expect(plan[1]).toBe('swim+bike');
+    expect(plan[3]).toBe('swim+bike');
+  });
+
+  it('has long run on Sunday and strength on Thursday in BUILD', () => {
+    const plan = getWeeklyDisciplinePlan('BUILD', mockProfile);
+    expect(plan[0]).toBe('run'); // Sunday = long run
+    expect(plan[4]).toBe('strength'); // Thursday = strength
   });
 
   it('sets rest days on specified days', () => {

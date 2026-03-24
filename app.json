@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "DailyTrain",
+    "name": "DTrain",
     "slug": "dailytrain",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,6 +17,7 @@
       "bundleIdentifier": "com.dailytrain.app",
       "buildNumber": "2",
       "infoPlist": {
+        "CFBundleDisplayName": "DTrain",
         "NSHealthShareUsageDescription": "DailyTrain reads your health data to personalize your training plan.",
         "NSHealthUpdateUsageDescription": "DailyTrain logs workouts to Apple Health."
       },

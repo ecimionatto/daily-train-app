@@ -1,23 +1,47 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
 import { buildKarvonenZones } from '../services/healthKit';
 import { getWeeklyDisciplinePlan } from '../services/localModel';
+import { getDistanceOptions } from '../services/raceConfig';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
 
-const WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun for display
+const DISCIPLINE_DISPLAY = {
+  'swim+bike': 'Swim + Bike',
+  brick: 'Bike + Run',
+};
 
-export default function PlanSettingsScreen({ navigation }) {
-  const { athleteProfile, getTrainingPhase, getDaysToRace, resetTrainingPlan } = useApp();
+function formatDiscipline(d) {
+  return DISCIPLINE_DISPLAY[d] || (d ? d.charAt(0).toUpperCase() + d.slice(1) : 'Rest');
+}
+
+export default function PlanSettingsScreen({ navigation, route: _route }) {
+  const { athleteProfile, getTrainingPhase, getDaysToRace, resetTrainingPlan, saveProfile } =
+    useApp();
 
   const phase = getTrainingPhase();
   const daysToRace = getDaysToRace();
-
   const hrProfile = athleteProfile?.hrProfile || null;
+
+  // Editable race config state — seeded from current profile
+  const [raceDate, setRaceDate] = useState(
+    athleteProfile?.raceDate ? new Date(athleteProfile.raceDate) : new Date()
+  );
+  const [distance, setDistance] = useState(athleteProfile?.distance || '');
+  const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
+  const [saving, setSaving] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
 
-  // Derive a quick zone summary for the card (Karvonen if HR data exists)
+  const distanceOptions = useMemo(() => getDistanceOptions('triathlon'), []);
+
+  function handleDateChange(_event, date) {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (date) setRaceDate(date);
+  }
+
   const zoneSummary = useMemo(() => {
     if (!hrProfile?.maxHR || !hrProfile?.restingHR) return null;
     return buildKarvonenZones(hrProfile.maxHR, hrProfile.restingHR);
@@ -28,25 +52,42 @@ export default function PlanSettingsScreen({ navigation }) {
     return getWeeklyDisciplinePlan(phase, athleteProfile);
   }, [phase, athleteProfile]);
 
-  function confirmResetPlan() {
-    Alert.alert(
-      'Reset Training Plan',
-      'This will clear your cached workouts and regenerate your plan. Your profile is kept.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: handleResetPlan,
-        },
-      ]
-    );
+  const hasChanges =
+    raceDate.toISOString().slice(0, 10) !== (athleteProfile?.raceDate || '').slice(0, 10) ||
+    distance !== (athleteProfile?.distance || '');
+
+  async function applyProfileChanges() {
+    const updated = {
+      ...athleteProfile,
+      raceDate: raceDate.toISOString(),
+      raceType: 'triathlon',
+      distance: distance || athleteProfile?.distance,
+    };
+    await saveProfile(updated);
   }
 
   async function handleResetPlan() {
-    await resetTrainingPlan();
-    setResetMessage('Plan reset');
-    navigation.goBack();
+    setSaving(true);
+    try {
+      // Clear cache BEFORE saving profile so the athleteProfile useEffect's
+      // loadCachedWorkout() call finds nothing in AsyncStorage.
+      await resetTrainingPlan();
+      await applyProfileChanges();
+      setResetMessage('Plan reset with new configuration');
+      navigation.goBack();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveOnly() {
+    setSaving(true);
+    try {
+      await applyProfileChanges();
+      setResetMessage('Configuration saved');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -59,7 +100,56 @@ export default function PlanSettingsScreen({ navigation }) {
         <Text style={styles.title}>Plan Settings</Text>
       </View>
 
-      {/* HR Zones summary card → navigates to full HR Zones screen */}
+      {/* Race Configuration — editable */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>RACE CONFIGURATION</Text>
+
+        {/* Race Date */}
+        <Text style={styles.fieldLabel}>Race Date</Text>
+        {Platform.OS === 'android' && !showDatePicker && (
+          <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateButtonText}>{raceDate.toLocaleDateString()}</Text>
+          </TouchableOpacity>
+        )}
+        {showDatePicker && (
+          <DateTimePicker
+            value={raceDate}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'compact' : 'default'}
+            minimumDate={new Date()}
+            onChange={handleDateChange}
+            style={styles.datePicker}
+            textColor="#ffffff"
+            themeVariant="dark"
+          />
+        )}
+
+        {/* Distance */}
+        <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Distance</Text>
+        <View style={styles.optionGrid}>
+          {distanceOptions.map((opt) => (
+            <TouchableOpacity
+              key={opt}
+              style={[styles.optionBtn, distance === opt && styles.optionBtnActive]}
+              onPress={() => setDistance(opt)}
+            >
+              <Text style={[styles.optionBtnText, distance === opt && styles.optionBtnTextActive]}>
+                {opt}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Save changes without resetting */}
+        {hasChanges && (
+          <TouchableOpacity style={styles.saveButton} onPress={handleSaveOnly} disabled={saving}>
+            <Text style={styles.saveButtonText}>{saving ? 'SAVING…' : 'SAVE CHANGES'}</Text>
+          </TouchableOpacity>
+        )}
+        {resetMessage !== '' && <Text style={styles.resetMessage}>{resetMessage}</Text>}
+      </View>
+
+      {/* HR Zones link card */}
       <TouchableOpacity
         style={styles.linkCard}
         onPress={() => navigation.navigate('HRZones')}
@@ -91,10 +181,9 @@ export default function PlanSettingsScreen({ navigation }) {
         <Text style={styles.linkCardArrow}>›</Text>
       </TouchableOpacity>
 
-      {/* Training Plan Details Card */}
+      {/* Training Plan Details (read-only) */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>TRAINING PLAN DETAILS</Text>
-
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Phase</Text>
           <Text style={styles.detailValue}>{phase}</Text>
@@ -109,20 +198,16 @@ export default function PlanSettingsScreen({ navigation }) {
           <Text style={styles.detailLabel}>Days to race</Text>
           <Text style={styles.detailValue}>{daysToRace ?? 'N/A'}</Text>
         </View>
-
         <Text style={styles.weekPlanTitle}>{"This Week's Discipline Plan"}</Text>
         {WEEK_DISPLAY_ORDER.map((dayIdx) => (
           <View key={dayIdx} style={styles.weekPlanRow}>
             <Text style={styles.weekPlanDay}>{DAY_NAMES[dayIdx]}</Text>
-            <Text style={styles.weekPlanDiscipline}>
-              {(weekPlan[dayIdx] || 'rest').charAt(0).toUpperCase() +
-                (weekPlan[dayIdx] || 'rest').slice(1)}
-            </Text>
+            <Text style={styles.weekPlanDiscipline}>{formatDiscipline(weekPlan[dayIdx])}</Text>
           </View>
         ))}
       </View>
 
-      {/* Premium Cloud Backup — Phase 2 Placeholder */}
+      {/* Premium placeholder */}
       <View style={styles.premiumCard}>
         <View style={styles.premiumHeader}>
           <Text style={styles.premiumTitle}>☁ CLOUD BACKUP</Text>
@@ -136,15 +221,19 @@ export default function PlanSettingsScreen({ navigation }) {
         </Text>
       </View>
 
-      {/* Reset Training Plan — Danger Zone */}
+      {/* Reset Training Plan — saves config changes first */}
       <View style={styles.dangerCard}>
         <Text style={styles.dangerTitle}>RESET TRAINING PLAN</Text>
         <Text style={styles.dangerDescription}>
-          Clears cached workouts and regenerates your plan. Your profile and settings are preserved.
+          Saves your race configuration above, clears cached workouts, and regenerates your plan
+          from scratch.
         </Text>
-        {resetMessage !== '' && <Text style={styles.resetMessage}>{resetMessage}</Text>}
-        <TouchableOpacity style={styles.dangerButton} onPress={confirmResetPlan}>
-          <Text style={styles.dangerButtonText}>RESET TRAINING PLAN</Text>
+        <TouchableOpacity
+          style={[styles.dangerButton, saving && styles.dangerButtonDisabled]}
+          onPress={handleResetPlan}
+          disabled={saving}
+        >
+          <Text style={styles.dangerButtonText}>{saving ? 'RESETTING…' : 'SAVE & RESET PLAN'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -187,7 +276,73 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 2,
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1,
     marginBottom: 8,
+  },
+  datePicker: {
+    marginLeft: -8,
+    marginBottom: 4,
+  },
+  dateButton: {
+    backgroundColor: '#2a2a3e',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  dateButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a3e',
+  },
+  optionBtnActive: {
+    backgroundColor: '#e8ff4722',
+    borderColor: '#e8ff47',
+  },
+  optionBtnText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  optionBtnTextActive: {
+    color: '#e8ff47',
+  },
+  saveButton: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#47ffb2',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#47ffb2',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  resetMessage: {
+    color: '#47ffb2',
+    fontSize: 13,
+    marginTop: 10,
   },
   linkCard: {
     backgroundColor: '#1a1a2e',
@@ -289,17 +444,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 16,
   },
-  resetMessage: {
-    color: '#47ffb2',
-    fontSize: 13,
-    marginBottom: 8,
-  },
   dangerButton: {
     borderWidth: 2,
     borderColor: '#ff6b6b',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+  },
+  dangerButtonDisabled: {
+    opacity: 0.5,
   },
   dangerButtonText: {
     color: '#ff6b6b',

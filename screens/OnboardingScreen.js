@@ -9,17 +9,12 @@ import {
   getDistanceOptions,
 } from '../services/raceConfig';
 
-function buildQuestions(raceType, distance) {
+function buildQuestions(distance) {
   const questions = [
     {
-      key: 'raceType',
-      question: 'What type of race are you training for?',
-      options: ['Triathlon', 'Running'],
-    },
-    {
       key: 'distance',
-      question: 'What distance?',
-      options: raceType ? getDistanceOptions(raceType) : ['Select race type first'],
+      question: 'What triathlon distance are you targeting?',
+      options: getDistanceOptions('triathlon'),
     },
     {
       key: 'weeklyHours',
@@ -28,27 +23,25 @@ function buildQuestions(raceType, distance) {
     },
   ];
 
-  if (raceType === 'triathlon') {
-    questions.push(
-      {
-        key: 'strongestDiscipline',
-        question: "What's your strongest discipline?",
-        options: ['Swim', 'Bike', 'Run', 'All equal'],
-      },
-      {
-        key: 'weakestDiscipline',
-        question: "What's your weakest discipline?",
-        options: ['Swim', 'Bike', 'Run', 'All equal'],
-      },
-      {
-        key: 'swimBackground',
-        question: 'Swimming background?',
-        options: ['Competitive', 'Comfortable', 'Learning', 'Survival mode'],
-      }
-    );
-  }
+  questions.push(
+    {
+      key: 'strongestDiscipline',
+      question: "What's your strongest discipline?",
+      options: ['Swim', 'Bike', 'Run', 'All equal'],
+    },
+    {
+      key: 'weakestDiscipline',
+      question: "What's your weakest discipline?",
+      options: ['Swim', 'Bike', 'Run', 'All equal'],
+    },
+    {
+      key: 'swimBackground',
+      question: 'Swimming background?',
+      options: ['Competitive', 'Comfortable', 'Learning', 'Survival mode'],
+    }
+  );
 
-  const expQ = EXPERIENCE_OPTIONS[raceType] || EXPERIENCE_OPTIONS.triathlon;
+  const expQ = EXPERIENCE_OPTIONS.triathlon;
   questions.push(
     { key: expQ.key, question: expQ.question, options: expQ.options },
     {
@@ -73,13 +66,9 @@ export default function OnboardingScreen({ onComplete }) {
   const [answers, setAnswers] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
 
-  const raceType = answers.raceType?.toLowerCase() || null;
   const selectedDistance = answers.distance || null;
 
-  const questions = useMemo(
-    () => buildQuestions(raceType, selectedDistance),
-    [raceType, selectedDistance]
-  );
+  const questions = useMemo(() => buildQuestions(selectedDistance), [selectedDistance]);
 
   const totalSteps = 1 + questions.length;
 
@@ -109,21 +98,14 @@ export default function OnboardingScreen({ onComplete }) {
   }
 
   async function finishOnboarding(finalAnswers) {
-    const rt = finalAnswers.raceType?.toLowerCase() || 'triathlon';
     const profile = {
       raceDate: raceDate.toISOString(),
       distance: finalAnswers.distance || 'Full Ironman (140.6)',
       level: 'Intermediate',
       ...finalAnswers,
-      raceType: rt,
+      raceType: 'triathlon',
       createdAt: new Date().toISOString(),
     };
-
-    if (rt === 'running') {
-      profile.strongestDiscipline = profile.strongestDiscipline || 'Run';
-      profile.weakestDiscipline = profile.weakestDiscipline || 'Run';
-      profile.swimBackground = profile.swimBackground || 'N/A';
-    }
 
     await saveProfile(profile);
     // Compute HR profile from 6 months of workout history once on plan creation.

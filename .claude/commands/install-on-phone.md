@@ -33,7 +33,7 @@ If grep already shows `@unknown default` entries, skip this step.
 
 ### 4. Release build
 ```bash
-xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+xcodebuild -workspace ios/DTrain.xcworkspace -scheme DTrain \
   -destination 'id=DEVICE_UDID' -configuration Release \
   DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build 2>&1 | \
   grep -E "error:|BUILD SUCCEEDED|BUILD FAILED|Bundle React Native"
@@ -44,7 +44,7 @@ Must see `Bundle React Native code and images` and `BUILD SUCCEEDED`. If `BUILD 
 ### 5. Install on device
 `xcodebuild build` only compiles — it does NOT push to the iPhone. Install explicitly:
 ```bash
-APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData/DailyTrain-*/Build/Products/Release-iphoneos -name "DailyTrain.app" -maxdepth 1 | head -1)
+APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData/DTrain-*/Build/Products/Release-iphoneos -name "DTrain.app" -maxdepth 1 | head -1)
 echo "Installing: $APP_PATH"
 ls "$APP_PATH/main.jsbundle" && echo "Bundle present" || echo "ERROR: Bundle missing"
 xcrun devicectl device install app --device DEVICE_UDID "$APP_PATH"

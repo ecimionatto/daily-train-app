@@ -324,9 +324,16 @@ export async function generateWorkoutLocally({
   );
   const recentActivity = formatRecentWorkouts(completedWorkouts);
 
+  const doubleSessionContext =
+    targetDiscipline === 'swim+bike'
+      ? `\nDISCIPLINE swim+bike = TWO-A-DAY: Generate two sections — "Morning — Swim" (AM, moderate Z2-Z3 OK) and "Afternoon — Bike" (PM, MUST be easy Z1-Z2 only). Athlete waits ≥4h between sessions. Split total duration ~50% swim / 50% bike.`
+      : targetDiscipline === 'strength'
+        ? `\nSTRENGTH SESSION RULES: Compound movements only (squats, deadlifts, lunges, hip hinges, rows, pull-ups). Heavy weight, low reps: 3–5 sets × 4–6 reps per exercise. NEVER train to failure — stop with 1–2 reps in reserve. No isolation or high-rep "toning" sets. Goal is neuromuscular strength without muscle bulk. This session is scheduled ≥6h after the main triathlon session today. Sections: Warmup (movement prep), Main Lifts (2–3 compound exercises with sets×reps), Accessory (1 core or hip-stability movement), Cooldown.`
+        : '';
+
   const systemPrompt = `You are an elite ${coachType} coach. Generate a JSON workout.
 Respond ONLY with valid JSON matching this structure:
-{"title":"string","discipline":"${disciplines.join('|')}|strength|rest","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}${targetDiscipline ? `\nThe discipline MUST be exactly: "${targetDiscipline}". Do not change it.` : ''}`;
+{"title":"string","discipline":"${disciplines.join('|')}","duration":number,"summary":"string","intensity":"easy|moderate|hard|recovery","sections":[{"name":"string","notes":"string","sets":[{"description":"string","zone":number|null}]}]}${targetDiscipline ? `\nThe discipline MUST be exactly: "${targetDiscipline}". Do not change it.` : ''}${doubleSessionContext}`;
 
   const insights = profile.athleteInsights;
   const activeAdjustment =
@@ -822,15 +829,17 @@ export function getWeeklyDisciplinePlan(phase, profile) {
   //   - Aim for each of swim/bike/run >= 3x/week (brick counts for both bike+run)
   //   - TAPER/RACE_WEEK: volume drop, no strength
   const plans = {
-    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
-    BASE: ['swim', 'run', 'strength', 'swim', 'bike', 'run', 'brick'],
-    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
-    BUILD: ['run', 'swim', 'bike', 'strength', 'run', 'swim', 'brick'],
-    // swim x2 + run x2+brick=3 + bike x1+brick=2 + strength x1
-    PEAK: ['swim', 'bike', 'run', 'strength', 'swim', 'run', 'brick'],
-    // reduced volume, 2 rest days, no strength
-    TAPER: ['bike', 'rest', 'swim', 'run', 'rest', 'swim', 'run'],
-    // race week - minimal load
+    // BASE: Sun=long run, Mon=swim+bike, Wed=strength, Sat=brick
+    // Swim=2(Mon+Fri), Bike=2(Mon+Sat), Run=4(Sun+Tue+Thu+Sat), Strength=1(Wed)
+    BASE: ['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick'],
+    // BUILD: Sun=long run, Mon+Wed=swim+bike double days, Thu=strength, Sat=brick
+    // Swim=3(Mon+Wed+Fri), Bike=3(Mon+Wed+Sat), Run=3(Sun+Tue+Sat), Strength=1(Thu)
+    BUILD: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
+    // PEAK: same template as BUILD; intensity increases in generated workouts
+    PEAK: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
+    // TAPER: no double sessions — reduced volume
+    TAPER: ['rest', 'swim', 'run', 'bike', 'run', 'rest', 'swim'],
+    // RACE_WEEK: minimal load
     RACE_WEEK: ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
   };
   const basePlan = plans[phase] || plans.BASE;
@@ -1081,36 +1090,46 @@ function buildWorkout(discipline, duration, readiness, _phase, _profile) {
       ],
     },
     strength: {
-      title: 'Functional Strength',
+      title: 'Neuromuscular Strength',
       discipline: 'strength',
-      duration: Math.min(duration, 45),
-      summary: 'Core and functional strength to prevent injury and improve efficiency.',
+      duration: Math.min(duration, 50),
+      summary:
+        'Heavy compound lifts to build neuromuscular strength without bulk. Scheduled after your main session today (≥6h apart). Stop every set with 1–2 reps in reserve — never train to failure.',
       intensity: 'moderate',
       sections: [
         {
-          name: 'Warmup',
-          notes: 'Activate key muscle groups.',
+          name: 'Movement Prep',
+          notes: '8–10 min. Activate hips, glutes, and thoracic spine before loading.',
           sets: [
-            { description: '5 min light cardio', zone: 1 },
-            { description: 'Band activation: glutes, shoulders', zone: null },
+            { description: '2 min light cardio (row or bike)', zone: 1 },
+            { description: '10 hip circles each side + 10 glute bridges', zone: null },
+            { description: '10 band pull-aparts + 10 shoulder rotations', zone: null },
           ],
         },
         {
-          name: 'Main Set',
-          notes: '3 rounds through.',
+          name: 'Main Lifts',
+          notes: '4–6 reps per set. Rest 2–3 min between sets. Stop with 1–2 reps in reserve.',
           sets: [
-            { description: '12 single-leg deadlifts each side', zone: null },
-            { description: '10 push-ups', zone: null },
-            { description: '15 goblet squats', zone: null },
-            { description: '30s side plank each side', zone: null },
-            { description: '12 band pull-aparts', zone: null },
-            { description: '60s rest between rounds', zone: null },
+            { description: 'Back squat or goblet squat — 4 × 5 reps (heavy)', zone: null },
+            { description: 'Romanian deadlift — 4 × 5 reps (heavy)', zone: null },
+            {
+              description: 'Bent-over row or single-arm DB row — 3 × 5 reps each side',
+              zone: null,
+            },
+          ],
+        },
+        {
+          name: 'Accessory',
+          notes: 'Hip stability and anti-rotation — key for run economy.',
+          sets: [
+            { description: 'Single-leg deadlift — 3 × 6 each side (moderate weight)', zone: null },
+            { description: 'Dead bug — 3 × 8 each side (slow, controlled)', zone: null },
           ],
         },
         {
           name: 'Cooldown',
-          notes: 'Stretch and foam roll.',
-          sets: [{ description: '10 min stretching and foam rolling', zone: null }],
+          notes: '5–8 min. Focus on hip flexors, hamstrings, and thoracic spine.',
+          sets: [{ description: '5 min stretching — hips, hamstrings, lats', zone: null }],
         },
       ],
     },
@@ -1168,6 +1187,32 @@ function buildWorkout(discipline, duration, readiness, _phase, _profile) {
           name: 'Cooldown',
           notes: 'Walk and stretch after the run.',
           sets: [{ description: '5 min walk + static stretching', zone: null }],
+        },
+      ],
+    },
+    'swim+bike': {
+      title: intensity === 'hard' ? 'AM Threshold Swim + PM Easy Ride' : 'AM Swim + PM Easy Bike',
+      discipline: 'swim+bike',
+      duration,
+      summary:
+        'Two-a-day: morning swim session followed by an easy afternoon ride. Wait ≥4 hours between sessions.',
+      intensity,
+      sections: [
+        {
+          name: 'Morning — Swim',
+          notes: 'Complete before noon. Light meal 90 min before. Hydrate well between sessions.',
+          sets: [
+            {
+              description: `${Math.round(duration * 0.5)} min swim — aerobic effort (Z2)`,
+              zone: 2,
+            },
+          ],
+        },
+        {
+          name: 'Afternoon — Bike',
+          notes:
+            'Easy Zone 1-2 only. Recovery spinning — save the hard work for dedicated bike days.',
+          sets: [{ description: `${Math.round(duration * 0.5)} min easy ride (Z1-Z2)`, zone: 1 }],
         },
       ],
     },

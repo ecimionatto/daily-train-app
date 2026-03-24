@@ -1,4 +1,4 @@
-# Run DailyTrain in iOS Simulator
+# Run DTrain in iOS Simulator
 
 Build and run the app in the iOS Simulator.
 
@@ -16,7 +16,7 @@ Build and run the app in the iOS Simulator.
 
 3. Build for simulator (no code signing required):
    ```bash
-   xcodebuild -workspace ios/DailyTrain.xcworkspace -scheme DailyTrain \
+   xcodebuild -workspace ios/DTrain.xcworkspace -scheme DTrain \
      -destination 'platform=iOS Simulator,name=iPhone 17' \
      CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
    ```
@@ -29,7 +29,7 @@ Build and run the app in the iOS Simulator.
 
 5. Install the built app:
    ```bash
-   xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/DailyTrain.app
+   xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/DTrain.app
    ```
 
 6. Start Metro bundler (required for JS bundle):

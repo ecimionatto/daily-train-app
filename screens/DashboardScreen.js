@@ -16,7 +16,12 @@ import {
   analyzeRecentWorkouts,
   getWeeklyDisciplinePlan,
 } from '../services/localModel';
-import { diagnoseRHR } from '../services/healthKit';
+
+function disciplineLabel(discipline) {
+  if (discipline === 'swim+bike') return 'SWIM + BIKE';
+  if (discipline === 'brick') return 'BIKE + RUN';
+  return discipline?.toUpperCase() || '';
+}
 
 export default function DashboardScreen({ navigation }) {
   const {
@@ -122,25 +127,8 @@ export default function DashboardScreen({ navigation }) {
     setRefreshing(false);
   }
 
-  async function runRHRDiagnostic() {
-    try {
-      const result = await diagnoseRHR();
-      const lines = [];
-      ['samples', 'single', 'rawHR', 'hrv'].forEach((key) => {
-        const r = result[key];
-        if (!r) return;
-        const firstValue = Array.isArray(r.data)
-          ? (r.data[0]?.value ?? 'no items')
-          : (r.data?.value ?? 'no value');
-        const count = Array.isArray(r.data) ? r.data.length : 'n/a';
-        lines.push(
-          `${r.api}:\n  err=${JSON.stringify(r.err)}\n  count=${count}\n  first=${firstValue}`
-        );
-      });
-      Alert.alert('HealthKit RHR Diagnostic', lines.join('\n\n') || JSON.stringify(result));
-    } catch (e) {
-      Alert.alert('Diagnostic Error', e.message || String(e));
-    }
+  function confirmResetPlan() {
+    navigation.navigate('PlanSettings', { promptReset: true });
   }
 
   function handleGenerateTomorrow() {
@@ -212,9 +200,9 @@ export default function DashboardScreen({ navigation }) {
               {displayScore}
             </Text>
             <View style={styles.readinessInfo}>
-              <Text style={styles.readinessTitle}>OVERALL READINESS</Text>
+              <Text style={styles.readinessTitle}>RACE READINESS</Text>
               <Text style={[styles.readinessLabel, { color: getReadinessColor(displayScore) }]}>
-                {getReadinessLabel(displayScore)}
+                {getRaceReadinessLabel(displayScore, phase, daysToRace)}
               </Text>
             </View>
           </View>
@@ -223,7 +211,7 @@ export default function DashboardScreen({ navigation }) {
           {overallReadiness && (
             <View style={styles.subScoreRow}>
               <SubScore label="HEALTH" value={overallReadiness.health} />
-              <SubScore label="TRAINING" value={overallReadiness.compliance} />
+              <SubScore label="COMPLIANCE" value={overallReadiness.compliance} />
               <SubScore label="RACE PREP" value={overallReadiness.racePrep} />
             </View>
           )}
@@ -302,7 +290,9 @@ export default function DashboardScreen({ navigation }) {
           <>
             <Text style={styles.workoutTitle}>{todayWorkout.title}</Text>
             <View style={styles.workoutMeta}>
-              <Text style={styles.workoutDiscipline}>{todayWorkout.discipline?.toUpperCase()}</Text>
+              <Text style={styles.workoutDiscipline}>
+                {disciplineLabel(todayWorkout.discipline)}
+              </Text>
               <Text style={styles.workoutDuration}>{todayWorkout.duration} min</Text>
               <Text style={styles.workoutIntensity}>{todayWorkout.intensity?.toUpperCase()}</Text>
             </View>
@@ -359,7 +349,7 @@ export default function DashboardScreen({ navigation }) {
             <Text style={styles.workoutTitle}>{tomorrowWorkout.title}</Text>
             <View style={styles.workoutMeta}>
               <Text style={styles.workoutDiscipline}>
-                {tomorrowWorkout.discipline?.toUpperCase()}
+                {disciplineLabel(tomorrowWorkout.discipline)}
               </Text>
               <Text style={styles.workoutDuration}>{tomorrowWorkout.duration} min</Text>
               <Text style={styles.workoutIntensity}>
@@ -394,7 +384,9 @@ export default function DashboardScreen({ navigation }) {
           <Text style={styles.sectionTitle}>ALTERNATIVE OPTION</Text>
           <Text style={styles.altTitle}>{alternativeWorkout.title}</Text>
           <View style={styles.workoutMeta}>
-            <Text style={styles.altDiscipline}>{alternativeWorkout.discipline?.toUpperCase()}</Text>
+            <Text style={styles.altDiscipline}>
+              {disciplineLabel(alternativeWorkout.discipline)}
+            </Text>
             <Text style={styles.altDuration}>{alternativeWorkout.duration} min</Text>
           </View>
           <Text style={styles.altSummary}>{alternativeWorkout.summary}</Text>
@@ -427,8 +419,8 @@ export default function DashboardScreen({ navigation }) {
                 {refreshing ? 'SYNCING...' : 'SYNC'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={runRHRDiagnostic} style={styles.diagButton}>
-              <Text style={styles.diagButtonText}>DIAGNOSE</Text>
+            <TouchableOpacity onPress={confirmResetPlan} style={styles.resetPlanButton}>
+              <Text style={styles.resetPlanButtonText}>RESET PLAN</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -551,10 +543,10 @@ function buildReadinessExplanation(overallReadiness, healthData) {
 
   const trainingNote =
     overallReadiness.compliance >= 80
-      ? 'consistent training'
+      ? 'consistent session compliance'
       : overallReadiness.compliance < 50
-        ? 'low recent training'
-        : 'moderate training';
+        ? 'low session compliance — missed sessions are slowing race prep'
+        : 'moderate compliance — stay consistent to hit race targets';
   parts.push(trainingNote);
 
   return parts.join(' · ');
@@ -566,10 +558,14 @@ function getReadinessColor(score) {
   return '#ff6b6b';
 }
 
-function getReadinessLabel(score) {
-  if (score >= 75) return 'READY TO PUSH';
-  if (score >= 55) return 'MODERATE EFFORT';
-  return 'RECOVERY DAY';
+function getRaceReadinessLabel(score, phase, daysToRace) {
+  if (phase === 'RACE_WEEK') return 'RACE WEEK';
+  if (phase === 'TAPER') return 'TAPERING';
+  if (daysToRace <= 14) return 'FINAL PREP';
+  if (score >= 80) return 'ON TRACK';
+  if (score >= 65) return 'BUILDING';
+  if (score >= 45) return 'NEEDS FOCUS';
+  return 'BEHIND TARGET';
 }
 
 function getScoreColor(score) {
@@ -1106,6 +1102,15 @@ const styles = StyleSheet.create({
   syncButtonDisabled: {
     color: '#666',
   },
+  resetPlanButton: {
+    marginLeft: 12,
+  },
+  resetPlanButtonText: {
+    color: '#ff6b6b',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
   noActivityText: {
     color: '#666',
     fontSize: 14,
@@ -1188,19 +1193,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  diagButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: '#444',
-    borderRadius: 6,
-  },
-  diagButtonText: {
-    color: '#666',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
   },
   recoveryNote: {
     color: '#e8ff47',

@@ -105,7 +105,7 @@ describe('isRunningOnly', () => {
 describe('getDisciplinesForProfile', () => {
   it('returns triathlon disciplines for triathlon profile', () => {
     const disciplines = getDisciplinesForProfile({ raceType: 'triathlon' });
-    expect(disciplines).toEqual(['swim', 'bike', 'run', 'strength', 'rest']);
+    expect(disciplines).toEqual(['swim', 'bike', 'run', 'brick', 'swim+bike', 'strength', 'rest']);
   });
 
   it('returns running disciplines for running profile', () => {
@@ -115,7 +115,7 @@ describe('getDisciplinesForProfile', () => {
 
   it('defaults to triathlon for missing raceType', () => {
     const disciplines = getDisciplinesForProfile({});
-    expect(disciplines).toEqual(['swim', 'bike', 'run', 'strength', 'rest']);
+    expect(disciplines).toEqual(['swim', 'bike', 'run', 'brick', 'swim+bike', 'strength', 'rest']);
   });
 });
 

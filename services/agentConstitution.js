@@ -122,7 +122,8 @@ RHR above baseline: +3-5bpm→moderate only | +5-10bpm→no intensity | +10bpm�
 PHASES: BASE=aerobic base (Z1-Z2 only, volume ≤8%/wk increase) | BUILD=threshold+intervals | PEAK=race-pace | TAPER=vol↓40-60% | RACE_WEEK=≤30%vol
 TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
 LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest.
-80/20 RULE (session distribution, NOT time split): 80% of weekly sessions = easy Z1-Z2 aerobic; 20% = hard Z3-Z5 intensity. Example: if 5 sessions/week → 4 easy + 1 hard.`;
+80/20 RULE (session distribution, NOT time split): 80% of weekly sessions = easy Z1-Z2 aerobic; 20% = hard Z3-Z5 intensity. Example: if 5 sessions/week → 4 easy + 1 hard.
+STRENGTH TRAINING PRINCIPLES: Compound movements only — squats, deadlifts, lunges, rows, hip hinges. Heavy weight, low reps: 3–5 sets × 4–6 reps. Never train to failure — stop with 1–2 reps in reserve. No hypertrophy work. Goal is neuromuscular strength without muscle bulk. Best days: same day as hard intervals (triathlon AM, strength PM, ≥6h apart). NEVER on long ride or long run days. Mon/Thu split works well (Mon=swim day+strength PM; Thu=interval day+strength PM).`;
 
 // ---------------------------------------------------------------------------
 // PLAN RULES
@@ -131,10 +132,15 @@ LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). 
 // Also injected into the coach system prompt so the AI can explain them.
 // ---------------------------------------------------------------------------
 export const PLAN_RULES = `WEEKLY PLAN RULES (non-negotiable):
-1. MIN 3/DISCIPLINE/WEEK: Each of swim, bike, run must appear ≥3× per week. Brick counts for both bike+run. Exception: REST_WEEK, TAPER, RACE_WEEK phases.
-2. NO CONSECUTIVE SAME DISCIPLINE: Same discipline on back-to-back days is forbidden, UNLESS it is a weekend AND the prior day was a brick.
-3. MANDATORY REST WEEK: Every 4th week (3 build + 1 rest cycle) must be a rest week — 30-40% reduced volume, Z1-Z2 only, no intensity work.
-4. WEEKLY STRENGTH: At least 1 resistance/strength session per week in BASE, BUILD, and PEAK phases.`;
+1. DISCIPLINE COUNT: Swim ≥2×/wk (BASE) or ≥3×/wk (BUILD/PEAK). Bike same. Run ≥3×/wk always. swim+bike counts for BOTH swim AND bike. Brick counts for BOTH bike AND run. Exception: TAPER, RACE_WEEK.
+2. NO CONSECUTIVE SAME DISCIPLINE: Same discipline back-to-back forbidden, UNLESS weekend AND prior day was brick.
+3. MANDATORY REST WEEK: Every 4th week — 30-40% volume reduction, Z1-Z2 only, no double sessions or intensity.
+4. WEEKLY STRENGTH: ≥1 session/wk on a WEEKDAY. NEVER on Sunday (long run) or Saturday (brick/long ride) — these are metabolically taxing enough. Best placement: same day as hard intervals (sport AM, strength PM, ≥6–9h apart). Mon/Thu split preferred (Mon=swim+strength PM; Thu=interval run+strength PM).
+5. SUNDAY = LONG RUN: Sunday is always a long easy aerobic run. Never schedule strength, rest, or double sessions on Sunday.
+6. TWO-A-DAY (swim+bike): AM swim + PM easy bike on same day. Allowed Mon and Wed. Swim may be moderate (Z3 max). Bike MUST be ≤Z2. Never two hard sessions same day.
+7. DOUBLE-DAY INTENSITY CAP: On two-a-day days, second session is always easy (Z1-Z2). Total daily load ≤150% of a single session.
+8. 1 INTERVAL/DISCIPLINE/WEEK: Each discipline gets exactly 1 quality/threshold session per week. All other sessions of that discipline are Z1-Z2.
+9. PREFERRED DAYS: Sun=long run. Mon+Wed=swim+bike (two-a-day). Tue=run. Thu=strength (BUILD/PEAK) or run. Fri=swim. Sat=brick.`;
 
 // ---------------------------------------------------------------------------
 // Builder functions — return formatted strings for system prompt injection

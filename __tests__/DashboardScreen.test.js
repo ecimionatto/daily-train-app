@@ -59,7 +59,7 @@ describe('DashboardScreen', () => {
     });
 
     await waitFor(() => {
-      expect(getByText('OVERALL READINESS')).toBeTruthy();
+      expect(getByText('RACE READINESS')).toBeTruthy();
     });
   });
 
@@ -70,7 +70,10 @@ describe('DashboardScreen', () => {
     });
 
     await waitFor(() => {
-      expect(getByText('MODERATE EFFORT')).toBeTruthy();
+      // Race-progress labels replace recovery labels
+      expect(
+        getByText(/ON TRACK|BUILDING|NEEDS FOCUS|BEHIND TARGET|TAPERING|RACE WEEK|FINAL PREP/)
+      ).toBeTruthy();
     });
   });
 

@@ -13,6 +13,22 @@ import {
 } from './test-utils';
 
 jest.mock('../services/healthKit');
+jest.mock('../services/localModel', () => {
+  const actual = jest.requireActual('../services/localModel');
+  return {
+    ...actual,
+    initLocalModel: jest.fn().mockResolvedValue(true),
+    isModelReady: jest.fn().mockReturnValue(false),
+    onModelProgress: jest.fn(),
+    generateWorkoutLocally: jest.fn().mockResolvedValue(null),
+    analyzeRecentWorkouts: jest.fn().mockResolvedValue(null),
+    getWeeklyDisciplinePlan: jest
+      .fn()
+      .mockReturnValue(['run', 'run', 'run', 'run', 'run', 'run', 'run']),
+  };
+});
+
+const mockNavigation = { canGoBack: () => false, goBack: jest.fn() };
 
 describe('WorkoutScreen', () => {
   beforeEach(async () => {
@@ -20,11 +36,14 @@ describe('WorkoutScreen', () => {
     jest.clearAllMocks();
     fetchHealthData.mockResolvedValue(mockHealthData);
     calculateReadiness.mockReturnValue(72);
+    const { getWeeklyDisciplinePlan } = require('../services/localModel');
+    // Return 'run' for every day so cached mockWorkout (discipline: 'run') passes discipline validation
+    getWeeklyDisciplinePlan.mockReturnValue(['run', 'run', 'run', 'run', 'run', 'run', 'run']);
   });
 
   it('shows empty state when no workout exists', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(getByText('No Workout Yet')).toBeTruthy();
@@ -37,7 +56,7 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(getByText('Tempo Run')).toBeTruthy();
@@ -52,7 +71,7 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(getByText('WARMUP')).toBeTruthy();
@@ -67,7 +86,9 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText, queryByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText, queryByText } = renderWithProviders(
+      <WorkoutScreen navigation={mockNavigation} />
+    );
 
     await waitFor(() => {
       expect(getByText('9 min easy jog')).toBeTruthy();
@@ -82,7 +103,7 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { queryByText } = renderWithProviders(<WorkoutScreen />);
+    const { queryByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(queryByText('MARK COMPLETE')).toBeNull();
@@ -96,7 +117,7 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getByText } = renderWithProviders(<WorkoutScreen />);
+    const { getByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       expect(getByText('MODERATE')).toBeTruthy();
@@ -109,7 +130,7 @@ describe('WorkoutScreen', () => {
       profile: mockProfile,
       workout: mockWorkout,
     });
-    const { getAllByText } = renderWithProviders(<WorkoutScreen />);
+    const { getAllByText } = renderWithProviders(<WorkoutScreen navigation={mockNavigation} />);
 
     await waitFor(() => {
       const zoneElements = getAllByText(/Zone \d/);
