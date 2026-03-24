@@ -56,6 +56,9 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     loadProfile();
+    // Start model download immediately so it is ready by the time the user
+    // opens the Coach tab — do not wait for the athlete profile to load.
+    loadLocalModel();
   }, []);
 
   useEffect(() => {
@@ -66,7 +69,6 @@ export function AppProvider({ children }) {
       loadCachedTomorrowWorkout();
       loadWorkoutHistory();
       loadCompletedWorkouts();
-      loadLocalModel();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [athleteProfile]);

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useChat } from '../context/ChatContext';
+import { useApp } from '../context/AppContext';
 
 const SUGGESTIONS = [
   'How should I train this week?',
@@ -53,9 +54,13 @@ function renderInlineMarkdown(text, baseStyle, key) {
 
 export default function ChatScreen() {
   const { messages, isResponding, sendMessage } = useChat();
+  const { modelStatus, modelProgress } = useApp();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef(null);
   const insets = useSafeAreaInsets();
+
+  const modelLoading = modelStatus === 'downloading' || modelStatus === 'loading';
+  const modelError = modelStatus === 'error';
 
   React.useEffect(() => {
     if (messages.length > 0) {
@@ -124,6 +129,23 @@ export default function ChatScreen() {
         <Text style={styles.headerSubtitle}>ON-DEVICE AI</Text>
       </View>
 
+      {modelLoading && (
+        <View style={styles.modelBanner}>
+          <Text style={styles.modelBannerText}>
+            {modelProgress > 0
+              ? `AI model loading… ${modelProgress}% — coach replies using built-in rules for now`
+              : 'AI model loading… coach replies using built-in rules for now'}
+          </Text>
+        </View>
+      )}
+      {modelError && (
+        <View style={[styles.modelBanner, styles.modelBannerError]}>
+          <Text style={styles.modelBannerText}>
+            AI model unavailable — using built-in coach rules
+          </Text>
+        </View>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -181,6 +203,23 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a2e',
+  },
+  modelBanner: {
+    backgroundColor: '#1a1a2e',
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a4e',
+  },
+  modelBannerError: {
+    backgroundColor: '#2e1a1a',
+    borderBottomColor: '#4e2a2a',
+  },
+  modelBannerText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   headerTitle: {
     color: '#ffffff',

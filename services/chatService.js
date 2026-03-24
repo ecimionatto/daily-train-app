@@ -1,4 +1,4 @@
-import { runInference, getModelLoadingProgress } from './localModel';
+import { runInference, getModelLoadingProgress, ModelNotReadyError } from './localModel';
 import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
 import { isRunningOnly } from './raceConfig';
 import { deriveHRZonesFromWorkouts } from './healthKit';
@@ -451,10 +451,26 @@ export async function getCoachResponse(userMessage, context, conversationHistory
   const summary = buildConversationSummary(conversationHistory);
   const userPrompt = summary ? `${summary}\n\nAthlete: ${userMessage}` : `Athlete: ${userMessage}`;
 
-  const modelResponse = await runInference(systemPrompt, userPrompt);
-  return modelResponse
-    ? modelResponse.trim()
-    : generateFallbackResponse(category, userMessage, context);
+  try {
+    const modelResponse = await runInference(systemPrompt, userPrompt);
+    return modelResponse
+      ? modelResponse.trim()
+      : generateFallbackResponse(category, userMessage, context);
+  } catch (e) {
+    if (e instanceof ModelNotReadyError) {
+      // AI model still loading — respond with rule-based engine so the user
+      // is never blocked. Append a soft note so they know to expect richer
+      // answers once the model finishes downloading.
+      const fallback = generateFallbackResponse(category, userMessage, context);
+      const progress = getModelLoadingProgress();
+      const progressNote =
+        progress > 0 && progress < 100
+          ? ` *(AI model loading — ${progress}% done)*`
+          : ' *(AI model still loading)*';
+      return `${fallback}${progressNote}`;
+    }
+    throw e;
+  }
 }
 
 /**
