@@ -35,8 +35,9 @@ export function ChatProvider({ children }) {
     athleteProfile,
     healthData,
     readinessScore,
-    getTrainingPhase,
-    getDaysToRace,
+    phase,
+    daysToRace,
+    weekPlan,
     todayWorkout,
     recentScore,
     overallReadiness,
@@ -248,7 +249,7 @@ export function ChatProvider({ children }) {
         role: 'coach',
         content: greeting,
         timestamp: new Date().toISOString(),
-        metadata: { proactive: true, phase: getTrainingPhase(), readinessScore },
+        metadata: { proactive: true, phase, readinessScore },
       };
 
       setMessages((prev) => {
@@ -289,7 +290,7 @@ export function ChatProvider({ children }) {
         role: 'coach',
         content: review,
         timestamp: new Date().toISOString(),
-        metadata: { weeklyReview: true, phase: getTrainingPhase(), readinessScore },
+        metadata: { weeklyReview: true, phase, readinessScore },
       };
 
       setMessages((prev) => {
@@ -306,14 +307,13 @@ export function ChatProvider({ children }) {
   }
 
   function buildFullContext() {
-    const phase = getTrainingPhase();
-    const daysToRace = getDaysToRace();
     return {
       athleteProfile,
       healthData,
       readinessScore,
       phase,
       daysToRace,
+      weekPlan,
       todayWorkout,
       recentScore,
       overallReadiness,
@@ -334,9 +334,6 @@ export function ChatProvider({ children }) {
 
       // Set ref synchronously to block concurrent greeting/review
       isRespondingRef.current = true;
-
-      const phase = getTrainingPhase();
-      const daysToRace = getDaysToRace();
 
       const athleteMessage = {
         id: `msg_${Date.now()}_athlete`,
@@ -361,6 +358,7 @@ export function ChatProvider({ children }) {
           readinessScore,
           phase,
           daysToRace,
+          weekPlan,
           todayWorkout,
           recentScore,
           overallReadiness,
@@ -440,8 +438,9 @@ export function ChatProvider({ children }) {
       swapTodayWorkout,
       saveProfile,
       onProfileUpdate,
-      getTrainingPhase,
-      getDaysToRace,
+      phase,
+      daysToRace,
+      weekPlan,
     ]
   );
 

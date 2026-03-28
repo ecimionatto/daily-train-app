@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   fetchHealthData,
@@ -53,6 +53,31 @@ export function AppProvider({ children }) {
   const [trends, setTrends] = useState(null);
   const [modelStatus, setModelStatus] = useState('idle');
   const [modelProgress, setModelProgress] = useState(0);
+
+  // --- Centralized domain values (single source of truth) ---
+  const phase = useMemo(() => {
+    if (!athleteProfile?.raceDate) return 'BASE';
+    const now = new Date();
+    const race = new Date(athleteProfile.raceDate);
+    const weeksOut = Math.ceil((race - now) / (7 * 24 * 60 * 60 * 1000));
+    if (weeksOut < 2) return 'RACE_WEEK';
+    if (weeksOut < 6) return 'TAPER';
+    if (weeksOut < 12) return 'PEAK';
+    if (weeksOut < 20) return 'BUILD';
+    return 'BASE';
+  }, [athleteProfile?.raceDate]);
+
+  const daysToRace = useMemo(() => {
+    if (!athleteProfile?.raceDate) return null;
+    const now = new Date();
+    const race = new Date(athleteProfile.raceDate);
+    return Math.ceil((race - now) / (24 * 60 * 60 * 1000));
+  }, [athleteProfile?.raceDate]);
+
+  const weekPlan = useMemo(() => {
+    if (!athleteProfile) return Array(7).fill('rest');
+    return getWeeklyDisciplinePlan(phase, athleteProfile);
+  }, [phase, athleteProfile]);
 
   useEffect(() => {
     loadProfile();
@@ -581,8 +606,9 @@ export function AppProvider({ children }) {
     swapTodayWorkout,
     clearTodayWorkout,
     readinessScore,
-    getTrainingPhase,
-    getDaysToRace,
+    phase,
+    daysToRace,
+    weekPlan,
     alternativeWorkout,
     saveAlternativeWorkout,
     recentScore,

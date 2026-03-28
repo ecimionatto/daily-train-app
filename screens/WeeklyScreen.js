@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useApp } from '../context/AppContext';
-import { generateWeeklySummaryLocally, getWeeklyDisciplinePlan } from '../services/localModel';
+import { generateWeeklySummaryLocally } from '../services/localModel';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -75,17 +75,9 @@ function buildWeekGrid(weekPlan, completedWorkouts) {
 }
 
 export default function WeeklyScreen({ navigation }) {
-  const { athleteProfile, getTrainingPhase, getDaysToRace, completedWorkouts } = useApp();
+  const { athleteProfile, phase, daysToRace, weekPlan, completedWorkouts } = useApp();
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
-
-  const phase = getTrainingPhase();
-  const daysToRace = getDaysToRace();
-
-  const weekPlan = useMemo(() => {
-    if (!athleteProfile) return Array(7).fill('rest');
-    return getWeeklyDisciplinePlan(phase, athleteProfile);
-  }, [phase, athleteProfile]);
 
   const weekGrid = useMemo(
     () => buildWeekGrid(weekPlan, completedWorkouts),

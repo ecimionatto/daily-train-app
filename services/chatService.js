@@ -1,5 +1,5 @@
 import { runInference, getModelLoadingProgress, ModelNotReadyError } from './localModel';
-import { generateReplacementWorkout, getWeeklyDisciplinePlan } from './localModel';
+import { generateReplacementWorkout } from './localModel';
 import { isRunningOnly } from './raceConfig';
 import { deriveHRZonesFromWorkouts } from './healthKit';
 import {
@@ -558,6 +558,25 @@ function parseAllScheduleIntents(message) {
     intents.avoidDays = days;
   }
 
+  const strengthKeywords = [
+    'strength on',
+    'strength to',
+    'move strength',
+    'change strength',
+    'weights on',
+    'weights to',
+    'move weights',
+    'gym on',
+    'gym to',
+    'lifting on',
+    'lifting to',
+    'strength day',
+    'strength session',
+  ];
+  if (strengthKeywords.some((kw) => lower.includes(kw))) {
+    intents.strengthDays = days;
+  }
+
   // Weekend preference detection
   const weekendSwapKeywords = [
     'bike saturday',
@@ -688,6 +707,7 @@ async function handleSchedulePreference(userMessage, context) {
         longDays: `long sessions on ${dayList}`,
         restDays: `${dayList} as rest day${intentValue.length > 1 ? 's' : ''}`,
         avoidDays: `${dayList} as no-training day${intentValue.length > 1 ? 's' : ''}`,
+        strengthDays: `strength sessions on ${dayList}`,
       }[intent];
     })
     .filter(Boolean);
@@ -1284,15 +1304,27 @@ ${zonesLine}`);
       ? `Rest Day (recovery — no training)`
       : `${todayWorkout.title} (${todayWorkout.discipline}, ${todayWorkout.duration}min, ${todayWorkout.intensity})`
     : 'Not generated yet';
-  sections.push(`TODAY'S WORKOUT: ${workoutInfo}`);
+  // Detect if today's workout was swapped from the plan
+  const contextWeekPlan = context.weekPlan || null;
+  const todayIdx = new Date().getDay();
+  const plannedDiscipline = contextWeekPlan ? contextWeekPlan[todayIdx] : null;
+  const isSwapped =
+    todayWorkout &&
+    todayWorkout.discipline !== 'rest' &&
+    plannedDiscipline &&
+    todayWorkout.discipline !== plannedDiscipline;
 
-  if (athleteProfile) {
+  sections.push(
+    `TODAY'S WORKOUT: ${workoutInfo}${isSwapped ? ` (adjusted from planned ${plannedDiscipline})` : ''}`
+  );
+
+  if (contextWeekPlan) {
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const weekPlan = getWeeklyDisciplinePlan(phase || 'BASE', athleteProfile);
-    const planLines = dayNames.map((day, i) => `  ${day}: ${weekPlan[i] || 'rest'}`);
-    sections.push(
-      `WEEKLY TRAINING PLAN (prescribed disciplines — never contradict this):\n${planLines.join('\n')}`
-    );
+    const planLines = dayNames.map((day, i) => `  ${day}: ${contextWeekPlan[i] || 'rest'}`);
+    const planHeader = isSwapped
+      ? 'WEEKLY TRAINING PLAN (default template — today was adjusted, see above)'
+      : 'WEEKLY TRAINING PLAN (prescribed disciplines for the week)';
+    sections.push(`${planHeader}:\n${planLines.join('\n')}`);
   }
 
   if (workoutHistory && workoutHistory.length > 0) {
@@ -1729,6 +1761,19 @@ export function classifyMessage(message) {
         'avoid training on',
         'free on weekdays',
         'only train on',
+        'move strength',
+        'change strength',
+        'strength on',
+        'strength to',
+        'strength session on',
+        'strength day to',
+        'move weights',
+        'weights on',
+        'weights to',
+        'gym on',
+        'gym to',
+        'lifting on',
+        'lifting to',
       ],
     },
     {
@@ -2022,7 +2067,7 @@ function buildCompletedWorkoutResponse(workoutHistory, yesterdayScore) {
   return parts.join('\n');
 }
 
-function buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName) {
+function buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, _phaseName) {
   if (!todayWorkout) {
     return "Your workout hasn't been generated yet. Head to the Dashboard and it will load your session for today.";
   }
@@ -2049,28 +2094,23 @@ function buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName)
     }
   }
 
-  if (score >= 75) {
-    parts.push('Your readiness is strong — push hard and make this one count!');
-  } else if (score < 55) {
-    parts.push(
-      'Your readiness is low today. Consider taking it easier than prescribed or switching to recovery.'
-    );
-  }
-
+  const closingParts = [];
+  if (score >= 75) closingParts.push('Readiness is strong — push hard!');
+  else if (score < 55) closingParts.push('Readiness is low — consider taking it easier.');
   if (daysToRace !== null && daysToRace !== undefined) {
-    parts.push(`${daysToRace} days to race — you're in ${phaseName} phase.`);
+    closingParts.push(`${daysToRace} days to race.`);
   }
+  if (closingParts.length > 0) parts.push(closingParts.join(' '));
 
   return parts.join(' ');
 }
 
 function buildScheduleInquiryResponse(context) {
-  const { athleteProfile, phase } = context;
-  const profile = athleteProfile || {};
-  const weekPlan = getWeeklyDisciplinePlan(phase || 'BASE', profile);
+  const { phase, todayWorkout } = context;
+  const plan = context.weekPlan || Array(7).fill('rest');
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  const schedule = weekPlan.map((discipline, i) => `${dayNames[i]}: ${discipline}`).join(', ');
+  const schedule = plan.map((discipline, i) => `${dayNames[i]}: ${discipline}`).join(', ');
 
   const parts = [];
   parts.push(
@@ -2078,7 +2118,7 @@ function buildScheduleInquiryResponse(context) {
   );
   parts.push(schedule + '.');
 
-  const strengthDay = weekPlan.indexOf('strength');
+  const strengthDay = plan.indexOf('strength');
   if (strengthDay >= 0) {
     parts.push(`Your strength/weights session is on ${dayNames[strengthDay]}.`);
   } else {
@@ -2088,8 +2128,15 @@ function buildScheduleInquiryResponse(context) {
   }
 
   const today = new Date().getDay();
-  const todayDiscipline = weekPlan[today];
-  parts.push(`Today (${dayNames[today]}) is ${todayDiscipline}.`);
+  const plannedDiscipline = plan[today];
+  const actualDiscipline = todayWorkout?.discipline;
+  if (actualDiscipline && actualDiscipline !== plannedDiscipline) {
+    parts.push(
+      `Today (${dayNames[today]}) is ${actualDiscipline} (adjusted from planned ${plannedDiscipline}).`
+    );
+  } else {
+    parts.push(`Today (${dayNames[today]}) is ${plannedDiscipline}.`);
+  }
 
   return parts.join(' ');
 }
@@ -2098,9 +2145,16 @@ function buildReadinessInquiryResponse(overallReadiness, healthData, yesterdaySc
   const parts = [];
 
   if (overallReadiness) {
-    parts.push(`Your overall readiness is ${overallReadiness.overall}/100.`);
+    const score = overallReadiness.overall;
+    const advice =
+      score >= 75
+        ? 'You are in a good spot — keep the momentum going!'
+        : score < 55
+          ? 'Your readiness needs attention. Focus on sleep, nutrition, and recovery.'
+          : 'Readiness is moderate — stay consistent.';
+    parts.push(`Your overall readiness is ${score}/100. ${advice}`);
     parts.push(
-      `Breakdown — Health: ${overallReadiness.health}/100, Training compliance: ${overallReadiness.compliance}/100, Race preparation: ${overallReadiness.racePrep}/100.`
+      `Breakdown — Health: ${overallReadiness.health}/100, Compliance: ${overallReadiness.compliance}/100, Race prep: ${overallReadiness.racePrep}/100.`
     );
   }
 
@@ -2122,14 +2176,6 @@ function buildReadinessInquiryResponse(overallReadiness, healthData, yesterdaySc
 
   if (daysToRace !== null && daysToRace !== undefined) {
     parts.push(`You have ${daysToRace} days until race day.`);
-  }
-
-  if (overallReadiness?.overall >= 75) {
-    parts.push('You are in a good spot — keep the momentum going!');
-  } else if (overallReadiness?.overall < 55) {
-    parts.push(
-      'Your readiness needs attention. Focus on sleep, nutrition, and recovery to bounce back.'
-    );
   }
 
   return (
@@ -2174,15 +2220,15 @@ function buildTrainingPlanResponse(phaseName, daysToRace, score, workoutHistory)
 
   if (score >= 75) {
     parts.push(
-      'Your readiness is high, so this is a great time for quality sessions. Focus on one key session per discipline.'
+      `Readiness ${score}/100 — great time for quality sessions. Focus on one key session per discipline.`
     );
   } else if (score >= 55) {
     parts.push(
-      'Your readiness is moderate. Keep most training in Zone 2 and limit high-intensity to 1-2 sessions.'
+      `Readiness ${score}/100 — keep most training in Zone 2, limit high-intensity to 1-2 sessions.`
     );
   } else {
     parts.push(
-      'Your readiness is low. Consider reducing volume by 20-30% and prioritizing sleep and nutrition.'
+      `Readiness ${score}/100 — consider reducing volume 20-30% and prioritizing recovery.`
     );
   }
   return parts.join(' ');
@@ -2267,26 +2313,20 @@ function buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yester
     );
   }
 
-  parts.push(`Your readiness is ${score}/100 and you're in the ${phaseName} phase.`);
+  if (score >= 75) {
+    parts.push(`Readiness ${score}/100 — you're in great shape. Stay consistent!`);
+  } else if (score < 55) {
+    parts.push(`Readiness ${score}/100 — your body needs attention. Prioritize recovery today.`);
+  } else {
+    parts.push(`Readiness ${score}/100 — solid. Stay the course.`);
+  }
 
   if (daysToRace !== null && daysToRace !== undefined) {
-    parts.push(`${daysToRace} days to race.`);
+    parts.push(`${daysToRace} days to race in ${phaseName} phase.`);
   }
 
   if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
     parts.push(`Yesterday's completion: ${yesterdayScore.completionScore}%.`);
-  }
-
-  if (score >= 75) {
-    parts.push("You're in great shape — stay consistent and follow the plan!");
-  } else if (score < 55) {
-    parts.push(
-      "Your body needs some attention. Prioritize recovery today and don't push too hard."
-    );
-  } else {
-    parts.push(
-      'Stay the course. Ask me about your workout, recovery, nutrition, or race strategy.'
-    );
   }
 
   return parts.join(' ');

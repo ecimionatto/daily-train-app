@@ -9,12 +9,10 @@ import {
   Alert,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
-import { useChat } from '../context/ChatContext';
 import {
   generateWorkoutLocally,
   generateAlternativeWorkout,
   analyzeRecentWorkouts,
-  getWeeklyDisciplinePlan,
 } from '../services/localModel';
 
 function disciplineLabel(discipline) {
@@ -31,8 +29,9 @@ export default function DashboardScreen({ navigation }) {
     todayWorkout,
     saveTodayWorkout,
     loadHealthData,
-    getTrainingPhase,
-    getDaysToRace,
+    phase,
+    daysToRace,
+    weekPlan,
     alternativeWorkout,
     saveAlternativeWorkout,
     recentScore,
@@ -51,15 +50,11 @@ export default function DashboardScreen({ navigation }) {
     rotateTomorrowWorkout,
   } = useApp();
 
-  const { messages } = useChat();
-
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showAltDetails, setShowAltDetails] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
 
-  const daysToRace = getDaysToRace();
-  const phase = getTrainingPhase();
   const displayScore = overallReadiness?.overall ?? readinessScore;
 
   useEffect(() => {
@@ -84,7 +79,6 @@ export default function DashboardScreen({ navigation }) {
     setLoading(true);
     try {
       const todayDay = new Date().getDay();
-      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
       const targetDiscipline = weekPlan[todayDay];
       const params = {
         profile: athleteProfile,
@@ -154,14 +148,45 @@ export default function DashboardScreen({ navigation }) {
     setShowAltDetails(false);
   }
 
-  function getLatestCoachNote() {
-    if (!messages || messages.length === 0) return null;
-    const proactive = [...messages]
-      .reverse()
-      .find((m) => m.metadata?.proactive || m.metadata?.weeklyReview);
-    if (proactive) return proactive.content;
-    const lastCoach = [...messages].reverse().find((m) => m.role === 'coach');
-    return lastCoach?.content || null;
+  function buildDashboardCoachNote() {
+    if (!todayWorkout) return null;
+    const discipline = todayWorkout.discipline;
+    const score = displayScore ?? readinessScore ?? 65;
+
+    if (todayWorkoutStatus === 'completed') {
+      return `Great work finishing today's ${disciplineLabel(discipline)} session! Recovery is just as important — refuel and rest up.`;
+    }
+    if (discipline === 'rest') {
+      const phaseRest = {
+        TAPER: 'Taper mode — trust the process and let your body absorb the training.',
+        RACE_WEEK: 'Race week rest. Stay calm, stay loose, stay confident.',
+        PEAK: 'Active recovery today. Your body needs this to handle peak training.',
+      };
+      return (
+        phaseRest[phase] ||
+        'Rest day — your body builds fitness during recovery, not just training.'
+      );
+    }
+
+    const parts = [];
+    parts.push(
+      `Today: ${todayWorkout.title} (${disciplineLabel(discipline)}, ${todayWorkout.duration}min).`
+    );
+    if (score >= 75) parts.push('Your body is primed — make this one count!');
+    else if (score >= 55) parts.push('Solid day ahead. Stay in the prescribed zones.');
+    else parts.push('Recovery is key today. Keep the intensity low.');
+
+    if (daysToRace !== null && daysToRace !== undefined) {
+      const phaseMessages = {
+        RACE_WEEK: 'Race week! Trust your training.',
+        TAPER: 'Taper mode — the hard work is done.',
+        PEAK: 'Peak training — this is where champions are made.',
+        BUILD: 'Building fitness every day. Stay consistent!',
+        BASE: 'Building your foundation. Every session matters.',
+      };
+      parts.push(`${daysToRace} days to race. ${phaseMessages[phase] || phaseMessages.BASE}`);
+    }
+    return parts.join(' ');
   }
 
   const phaseLabels = {
@@ -275,7 +300,7 @@ export default function DashboardScreen({ navigation }) {
       )}
 
       {/* Coach Note */}
-      {renderCoachNote(getLatestCoachNote(), navigation)}
+      {renderCoachNote(buildDashboardCoachNote(), navigation)}
 
       {/* Today's Workout - Full Details */}
       <View style={styles.workoutCard}>
@@ -337,9 +362,6 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         )}
       </View>
-
-      {/* Nutrition Tips */}
-      {todayWorkout && <NutritionTipCard workout={todayWorkout} />}
 
       {/* Tomorrow's Session */}
       <View style={styles.tomorrowCard}>
@@ -621,68 +643,6 @@ function getRecoveryNote(readinessScore, trends, healthData) {
     return `Readiness ${readinessScore}/100 · HRV ${hrv}ms · RHR ${rhr}bpm. Execute as prescribed.`;
   }
   return null;
-}
-
-function getNutritionTip(workout) {
-  if (!workout || workout.discipline === 'rest') return null;
-  const duration = workout.duration || 0;
-  const discipline = workout.discipline;
-  const intensity = workout.intensity;
-
-  if (discipline === 'brick' || duration >= 120) {
-    return {
-      pre: 'Eat a carb-rich meal 2-3 hrs before. Target 60-90g carbs/hr during the session. Carry gels or chews for the run leg.',
-      during: 'Hydrate every 15-20 min on the bike. Take a gel 10 min before T2 to fuel the run.',
-      post: 'Recover within 30 min: 3:1 carb-to-protein ratio. Chocolate milk, rice + chicken, or a recovery shake.',
-    };
-  }
-  if (duration >= 75) {
-    return {
-      pre: 'Eat a light carb-focused meal 90 min before: oats, banana, or toast with honey.',
-      during:
-        discipline === 'swim'
-          ? 'Sip water before and after. Electrolytes if >75 min in the pool.'
-          : 'Sip electrolytes every 20 min. A gel at the 60-min mark if needed.',
-      post: 'Refuel within 45 min: protein + carbs. Greek yoghurt with fruit, or eggs on toast.',
-    };
-  }
-  if (intensity === 'hard') {
-    return {
-      pre: 'Have a small carb snack 60-90 min before: banana, dates, or a slice of toast.',
-      during: 'Water is enough for sessions under 60 min. Electrolytes if you sweat heavily.',
-      post: 'Priority recovery meal within 30 min: 20-30g protein + 40-60g carbs.',
-    };
-  }
-  // Easy/short session
-  return {
-    pre: 'Stay hydrated. A light snack is fine if training within 1 hr of eating.',
-    during: 'Water only for short easy sessions.',
-    post: 'Normal balanced meal. No need to rush — your next meal will cover recovery.',
-  };
-}
-
-function NutritionTipCard({ workout }) {
-  const tip = getNutritionTip(workout);
-  if (!tip) return null;
-  return (
-    <View style={styles.nutritionCard}>
-      <Text style={styles.nutritionTitle}>NUTRITION</Text>
-      <View style={styles.nutritionRow}>
-        <Text style={styles.nutritionLabel}>PRE</Text>
-        <Text style={styles.nutritionText}>{tip.pre}</Text>
-      </View>
-      <View style={styles.nutritionDivider} />
-      <View style={styles.nutritionRow}>
-        <Text style={styles.nutritionLabel}>DURING</Text>
-        <Text style={styles.nutritionText}>{tip.during}</Text>
-      </View>
-      <View style={styles.nutritionDivider} />
-      <View style={styles.nutritionRow}>
-        <Text style={styles.nutritionLabel}>POST</Text>
-        <Text style={styles.nutritionText}>{tip.post}</Text>
-      </View>
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
@@ -1201,44 +1161,5 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 8,
     fontStyle: 'italic',
-  },
-  nutritionCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderLeftWidth: 3,
-    borderLeftColor: '#47ffb2',
-  },
-  nutritionTitle: {
-    color: '#888',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 14,
-  },
-  nutritionRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  nutritionLabel: {
-    color: '#47ffb2',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-    width: 52,
-    marginTop: 1,
-  },
-  nutritionText: {
-    color: '#ccc',
-    fontSize: 13,
-    lineHeight: 19,
-    flex: 1,
-  },
-  nutritionDivider: {
-    height: 1,
-    backgroundColor: '#2a2a3e',
-    marginBottom: 10,
   },
 });

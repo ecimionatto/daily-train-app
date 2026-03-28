@@ -11,7 +11,6 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
 import { buildKarvonenZones } from '../services/healthKit';
-import { getWeeklyDisciplinePlan } from '../services/localModel';
 import { getDistanceOptions } from '../services/raceConfig';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -29,15 +28,13 @@ function formatDiscipline(d) {
 export default function PlanSettingsScreen({ navigation, route: _route }) {
   const {
     athleteProfile,
-    getTrainingPhase,
-    getDaysToRace,
+    phase,
+    daysToRace,
+    weekPlan,
     resetTrainingPlan,
     resetToOnboarding,
     saveProfile,
   } = useApp();
-
-  const phase = getTrainingPhase();
-  const daysToRace = getDaysToRace();
   const hrProfile = athleteProfile?.hrProfile || null;
 
   // Editable race config state — seeded from current profile
@@ -66,11 +63,6 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
     if (!hrProfile?.maxHR || !hrProfile?.restingHR) return null;
     return buildKarvonenZones(hrProfile.maxHR, hrProfile.restingHR);
   }, [hrProfile]);
-
-  const weekPlan = useMemo(() => {
-    if (!athleteProfile) return Array(7).fill('rest');
-    return getWeeklyDisciplinePlan(phase, athleteProfile);
-  }, [phase, athleteProfile]);
 
   const hasChanges =
     raceDate.toISOString().slice(0, 10) !== (athleteProfile?.raceDate || '').slice(0, 10) ||

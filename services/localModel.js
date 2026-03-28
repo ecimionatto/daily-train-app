@@ -886,7 +886,17 @@ export function getWeeklyDisciplinePlan(phase, profile) {
   };
 
   const planSet = templates[key] || templates['mwf_bike-sat-run-sun'];
-  const basePlan = planSet[phase] || planSet.BASE;
+  const basePlan = [...(planSet[phase] || planSet.BASE)];
+
+  // Low-hour athletes: replace strength with weakest discipline to ensure 3+ sessions per core discipline
+  if (profile?.weeklyHours === '5-7') {
+    const weakest = (profile.weakestDiscipline || 'swim').toLowerCase();
+    const strIdx = basePlan.indexOf('strength');
+    if (strIdx >= 0) {
+      basePlan[strIdx] = weakest;
+    }
+  }
+
   const longDiscipline = weekendPreference === 'run-sat-bike-sun' ? 'run' : 'brick';
   return applySchedulePreferences(basePlan, profile, longDiscipline);
 }
@@ -956,6 +966,21 @@ function applySchedulePreferences(plan, profile, longDiscipline) {
         const displaced = result[day];
         result[day] = longDiscipline;
         result[currentLongIdx] = displaced;
+      }
+    }
+  }
+
+  // Apply strength days — move strength to preferred days
+  if (prefs.strengthDays && prefs.strengthDays.length > 0) {
+    for (const day of prefs.strengthDays) {
+      if (result[day] === 'rest') continue;
+      const currentStrIdx = result.findIndex(
+        (d, i) => d === 'strength' && !prefs.strengthDays.includes(i)
+      );
+      if (currentStrIdx >= 0 && result[day] !== 'strength') {
+        const displaced = result[day];
+        result[day] = 'strength';
+        result[currentStrIdx] = displaced;
       }
     }
   }

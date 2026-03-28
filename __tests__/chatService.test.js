@@ -73,6 +73,13 @@ describe('classifyMessage', () => {
     expect(classifyMessage('No training on Monday please')).toBe('schedule_preference');
   });
 
+  it('classifies strength day change requests as schedule_preference', () => {
+    expect(classifyMessage('Move strength to Monday')).toBe('schedule_preference');
+    expect(classifyMessage('I want my strength session on Wednesday')).toBe('schedule_preference');
+    expect(classifyMessage('Change strength day to Friday')).toBe('schedule_preference');
+    expect(classifyMessage('Move weights to Monday')).toBe('schedule_preference');
+  });
+
   it('classifies training plan questions', () => {
     expect(classifyMessage('What phase am I in?')).toBe('training_plan');
     expect(classifyMessage('Can I increase my weekly volume?')).toBe('training_plan');
@@ -307,7 +314,7 @@ describe('generateFallbackResponse', () => {
     const response = generateFallbackResponse('readiness_inquiry', 'how am i', context);
     expect(response).toContain('72/100');
     expect(response).toContain('Health: 75');
-    expect(response).toContain('compliance: 70');
+    expect(response).toContain('Compliance: 70');
   });
 
   it('includes health metrics in readiness_inquiry', () => {

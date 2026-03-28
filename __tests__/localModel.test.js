@@ -511,6 +511,39 @@ describe('getWeeklyDisciplinePlan with weekendPreference and swimDays', () => {
     expect(taper.filter((d) => d === 'strength').length).toBe(0);
     expect(raceWeek.filter((d) => d === 'strength').length).toBe(0);
   });
+
+  it('moves strength to specified day via strengthDays preference', () => {
+    const profile = {
+      ...mockProfile,
+      schedulePreferences: { strengthDays: [1] },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profile);
+    expect(plan[1]).toBe('strength');
+    // Original strength day (Wed=3) should have the displaced discipline
+    expect(plan[3]).not.toBe('strength');
+  });
+
+  it('removes strength for low weekly hours (5-7) and replaces with weakest discipline', () => {
+    const lowHoursProfile = { ...mockProfile, weeklyHours: '5-7', weakestDiscipline: 'Swim' };
+    const plan = getWeeklyDisciplinePlan('BASE', lowHoursProfile);
+    expect(plan.filter((d) => d === 'strength').length).toBe(0);
+    // The slot that was strength should now be swim
+    expect(plan[3]).toBe('swim');
+  });
+
+  it('keeps strength for higher weekly hours (8-10+)', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan.filter((d) => d === 'strength').length).toBe(1);
+  });
+
+  it('ensures at least 3 core discipline sessions for low-hour athletes', () => {
+    const lowHoursProfile = { ...mockProfile, weeklyHours: '5-7', weakestDiscipline: 'Swim' };
+    const plan = getWeeklyDisciplinePlan('BASE', lowHoursProfile);
+    const swimCount = plan.filter((d) => d === 'swim' || d === 'swim+bike').length;
+    const runCount = plan.filter((d) => d === 'run' || d === 'brick').length;
+    expect(swimCount).toBeGreaterThanOrEqual(2);
+    expect(runCount).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe('strength workout periodization via generateWorkoutLocally', () => {
