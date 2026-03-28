@@ -34,6 +34,12 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
   const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
   const [saving, setSaving] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  const [weekendPref, setWeekendPref] = useState(
+    athleteProfile?.schedulePreferences?.weekendPreference || 'bike-sat-run-sun'
+  );
+  const [swimDaysPref, setSwimDaysPref] = useState(
+    athleteProfile?.schedulePreferences?.swimDays || 'mwf'
+  );
 
   const distanceOptions = useMemo(() => getDistanceOptions('triathlon'), []);
 
@@ -54,7 +60,10 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
 
   const hasChanges =
     raceDate.toISOString().slice(0, 10) !== (athleteProfile?.raceDate || '').slice(0, 10) ||
-    distance !== (athleteProfile?.distance || '');
+    distance !== (athleteProfile?.distance || '') ||
+    weekendPref !==
+      (athleteProfile?.schedulePreferences?.weekendPreference || 'bike-sat-run-sun') ||
+    swimDaysPref !== (athleteProfile?.schedulePreferences?.swimDays || 'mwf');
 
   async function applyProfileChanges() {
     const updated = {
@@ -62,6 +71,11 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
       raceDate: raceDate.toISOString(),
       raceType: 'triathlon',
       distance: distance || athleteProfile?.distance,
+      schedulePreferences: {
+        ...(athleteProfile?.schedulePreferences || {}),
+        weekendPreference: weekendPref,
+        swimDays: swimDaysPref,
+      },
     };
     await saveProfile(updated);
   }
@@ -147,6 +161,63 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
           </TouchableOpacity>
         )}
         {resetMessage !== '' && <Text style={styles.resetMessage}>{resetMessage}</Text>}
+      </View>
+
+      {/* Schedule Preferences */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>SCHEDULE PREFERENCES</Text>
+
+        <Text style={styles.fieldLabel}>Weekend Long Sessions</Text>
+        <View style={styles.optionGrid}>
+          {[
+            { label: 'Bike Sat / Run Sun', value: 'bike-sat-run-sun' },
+            { label: 'Run Sat / Bike Sun', value: 'run-sat-bike-sun' },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={opt.value}
+              style={[styles.optionBtn, weekendPref === opt.value && styles.optionBtnActive]}
+              onPress={() => setWeekendPref(opt.value)}
+            >
+              <Text
+                style={[
+                  styles.optionBtnText,
+                  weekendPref === opt.value && styles.optionBtnTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Preferred Swim Days</Text>
+        <View style={styles.optionGrid}>
+          {[
+            { label: 'Mon / Wed / Fri', value: 'mwf' },
+            { label: 'Tue / Thu / Sat', value: 'tts' },
+          ].map((opt) => (
+            <TouchableOpacity
+              key={opt.value}
+              style={[styles.optionBtn, swimDaysPref === opt.value && styles.optionBtnActive]}
+              onPress={() => setSwimDaysPref(opt.value)}
+            >
+              <Text
+                style={[
+                  styles.optionBtnText,
+                  swimDaysPref === opt.value && styles.optionBtnTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {hasChanges && (
+          <TouchableOpacity style={styles.saveButton} onPress={handleSaveOnly} disabled={saving}>
+            <Text style={styles.saveButtonText}>{saving ? 'SAVING…' : 'SAVE CHANGES'}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* HR Zones link card */}

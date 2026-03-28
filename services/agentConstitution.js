@@ -95,6 +95,8 @@ export const COACH_SKILLS = [
       'athleteProfile.schedulePreferences.restDays',
       'athleteProfile.schedulePreferences.longDays',
       'athleteProfile.schedulePreferences.avoidDays',
+      'athleteProfile.schedulePreferences.weekendPreference',
+      'athleteProfile.schedulePreferences.swimDays',
     ],
     fallback: 'Acknowledge the preference and note it will apply to future workouts.',
   },
@@ -123,7 +125,7 @@ PHASES: BASE=aerobic base (Z1-Z2 only, volume ≤8%/wk increase) | BUILD=thresho
 TAPER: 14-21d→begin taper | 7d→openers only | 2-3d→rest
 LOAD RULES: Never raise volume+intensity same week. 3 build→1 deload(30-40%). Injury→3d rest.
 80/20 RULE (session distribution, NOT time split): 80% of weekly sessions = easy Z1-Z2 aerobic; 20% = hard Z3-Z5 intensity. Example: if 5 sessions/week → 4 easy + 1 hard.
-STRENGTH TRAINING PRINCIPLES: Compound movements only — squats, deadlifts, lunges, rows, hip hinges. Heavy weight, low reps: 3–5 sets × 4–6 reps. Never train to failure — stop with 1–2 reps in reserve. No hypertrophy work. Goal is neuromuscular strength without muscle bulk. Best days: same day as hard intervals (triathlon AM, strength PM, ≥6h apart). NEVER on long ride or long run days. Mon/Thu split works well (Mon=swim day+strength PM; Thu=interval day+strength PM).`;
+STRENGTH PERIODIZATION (High-Low stacking): Always same day as hard intervals (sport AM, strength PM, ≥6h apart). NEVER on long ride/run days. BASE=max strength (squat 4×5, RDL 4×5, row 3×5, Bulgarian split squat 3×6/side, dead bug 3×8/side). BUILD=power/explosive (jump squat 3×5, hang clean 4×3, SL deadlift 3×6/side, box jump 3×5, Pallof press 3×10/side). PEAK=maintain only (goblet squat 3×5, SL RDL 3×6/side, plank 3×30s, calf raise 3×8). TAPER=reduced maintain (30min cap). RACE_WEEK=none. Focus: single-leg stability, tendon stiffness, core anti-rotation. Never to failure — 1–2 reps in reserve.`;
 
 // ---------------------------------------------------------------------------
 // PLAN RULES
@@ -135,12 +137,12 @@ export const PLAN_RULES = `WEEKLY PLAN RULES (non-negotiable):
 1. DISCIPLINE COUNT: Swim ≥2×/wk (BASE) or ≥3×/wk (BUILD/PEAK). Bike same. Run ≥3×/wk always. swim+bike counts for BOTH swim AND bike. Brick counts for BOTH bike AND run. Exception: TAPER, RACE_WEEK.
 2. NO CONSECUTIVE SAME DISCIPLINE: Same discipline back-to-back forbidden, UNLESS weekend AND prior day was brick.
 3. MANDATORY REST WEEK: Every 4th week — 30-40% volume reduction, Z1-Z2 only, no double sessions or intensity.
-4. WEEKLY STRENGTH: ≥1 session/wk on a WEEKDAY. NEVER on Sunday (long run) or Saturday (brick/long ride) — these are metabolically taxing enough. Best placement: same day as hard intervals (sport AM, strength PM, ≥6–9h apart). Mon/Thu split preferred (Mon=swim+strength PM; Thu=interval run+strength PM).
+4. WEEKLY STRENGTH: ≥1 session/wk on a WEEKDAY (High-Low stacking). NEVER on Sunday or Saturday. Same day as hard intervals (sport AM, strength PM, ≥6–9h apart). Periodized: BASE=max strength (heavy 3-5 reps), BUILD=power/explosive (moderate weight fast), PEAK=maintenance only, TAPER=reduced, RACE_WEEK=none.
 5. SUNDAY = LONG RUN: Sunday is always a long easy aerobic run. Never schedule strength, rest, or double sessions on Sunday.
 6. TWO-A-DAY (swim+bike): AM swim + PM easy bike on same day. Allowed Mon and Wed. Swim may be moderate (Z3 max). Bike MUST be ≤Z2. Never two hard sessions same day.
 7. DOUBLE-DAY INTENSITY CAP: On two-a-day days, second session is always easy (Z1-Z2). Total daily load ≤150% of a single session.
 8. 1 INTERVAL/DISCIPLINE/WEEK: Each discipline gets exactly 1 quality/threshold session per week. All other sessions of that discipline are Z1-Z2.
-9. PREFERRED DAYS: Sun=long run. Mon+Wed=swim+bike (two-a-day). Tue=run. Thu=strength (BUILD/PEAK) or run. Fri=swim. Sat=brick.`;
+9. PREFERRED DAYS: Configurable via athlete schedulePreferences (weekendPreference, swimDays). Defaults: Sun=long run, Mon+Wed=swim+bike, Tue=run, Thu=strength (BUILD/PEAK) or run, Fri=swim, Sat=brick. If weekendPreference=run-sat-bike-sun: Sun=long bike, Sat=long run. If swimDays=tts: swim on Tue/Thu/Sat instead of Mon/Wed/Fri.`;
 
 // ---------------------------------------------------------------------------
 // Builder functions — return formatted strings for system prompt injection

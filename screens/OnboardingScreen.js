@@ -38,6 +38,16 @@ function buildQuestions(distance) {
       key: 'swimBackground',
       question: 'Swimming background?',
       options: ['Competitive', 'Comfortable', 'Learning', 'Survival mode'],
+    },
+    {
+      key: 'weekendPreference',
+      question: 'When do you prefer your long sessions?',
+      options: ['Bike Saturday / Run Sunday', 'Run Saturday / Bike Sunday'],
+    },
+    {
+      key: 'swimDays',
+      question: 'Which days do you prefer to swim?',
+      options: ['Mon / Wed / Fri', 'Tue / Thu / Sat'],
     }
   );
 
@@ -98,13 +108,27 @@ export default function OnboardingScreen({ onComplete }) {
   }
 
   async function finishOnboarding(finalAnswers) {
+    const weekendPrefMap = {
+      'Bike Saturday / Run Sunday': 'bike-sat-run-sun',
+      'Run Saturday / Bike Sunday': 'run-sat-bike-sun',
+    };
+    const swimDaysMap = {
+      'Mon / Wed / Fri': 'mwf',
+      'Tue / Thu / Sat': 'tts',
+    };
+
+    const { weekendPreference: wpRaw, swimDays: sdRaw, ...rest } = finalAnswers;
     const profile = {
       raceDate: raceDate.toISOString(),
-      distance: finalAnswers.distance || 'Full Ironman (140.6)',
+      distance: rest.distance || 'Full Ironman (140.6)',
       level: 'Intermediate',
-      ...finalAnswers,
+      ...rest,
       raceType: 'triathlon',
       createdAt: new Date().toISOString(),
+      schedulePreferences: {
+        weekendPreference: weekendPrefMap[wpRaw] || 'bike-sat-run-sun',
+        swimDays: swimDaysMap[sdRaw] || 'mwf',
+      },
     };
 
     await saveProfile(profile);

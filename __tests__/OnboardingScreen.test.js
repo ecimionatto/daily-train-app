@@ -59,17 +59,25 @@ describe('OnboardingScreen', () => {
 
     // Step 5: swimBackground
     fireEvent.press(getByText('Comfortable'));
+    await waitFor(() => getByText('When do you prefer your long sessions?'));
+
+    // Step 6: weekendPreference
+    fireEvent.press(getByText('Bike Saturday / Run Sunday'));
+    await waitFor(() => getByText('Which days do you prefer to swim?'));
+
+    // Step 7: swimDays
+    fireEvent.press(getByText('Mon / Wed / Fri'));
     await waitFor(() => getByText('Previous triathlon race experience?'));
 
-    // Step 6: previousRaces
+    // Step 8: previousRaces
     fireEvent.press(getByText('First timer'));
     await waitFor(() => getByText('Any current injury concerns?'));
 
-    // Step 7: injuries
+    // Step 9: injuries
     fireEvent.press(getByText('None'));
     await waitFor(() => getByText("What's your target finish time?"));
 
-    // Step 8: goalTime
+    // Step 10: goalTime
     fireEvent.press(getByText('5:30-6:30'));
 
     await waitFor(() => {
@@ -91,6 +99,10 @@ describe('OnboardingScreen', () => {
     fireEvent.press(getByText('Swim'));
     await waitFor(() => getByText('Comfortable'));
     fireEvent.press(getByText('Comfortable'));
+    await waitFor(() => getByText('Bike Saturday / Run Sunday'));
+    fireEvent.press(getByText('Run Saturday / Bike Sunday'));
+    await waitFor(() => getByText('Mon / Wed / Fri'));
+    fireEvent.press(getByText('Tue / Thu / Sat'));
     await waitFor(() => getByText('First timer'));
     fireEvent.press(getByText('First timer'));
     await waitFor(() => getByText('None'));
@@ -104,6 +116,8 @@ describe('OnboardingScreen', () => {
       expect(profile.raceType).toBe('triathlon');
       expect(profile.distance).toBe('Olympic Triathlon');
       expect(profile.weeklyHours).toBe('8-10');
+      expect(profile.schedulePreferences.weekendPreference).toBe('run-sat-bike-sun');
+      expect(profile.schedulePreferences.swimDays).toBe('tts');
     });
   });
 

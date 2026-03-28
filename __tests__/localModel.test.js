@@ -446,6 +446,141 @@ describe('getWeeklyDisciplinePlan with schedule preferences', () => {
   });
 });
 
+describe('getWeeklyDisciplinePlan with weekendPreference and swimDays', () => {
+  it('uses default bike-sat-run-sun and mwf when preferences not set', () => {
+    const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
+    expect(plan[0]).toBe('run'); // Sun = long run
+    expect(plan[6]).toBe('brick'); // Sat = brick (bike-based)
+    expect(plan[1]).toBe('swim+bike'); // Mon = swim day (mwf)
+  });
+
+  it('swaps weekend disciplines when weekendPreference is run-sat-bike-sun', () => {
+    const profile = {
+      ...mockProfile,
+      schedulePreferences: { weekendPreference: 'run-sat-bike-sun', swimDays: 'mwf' },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profile);
+    expect(plan[0]).toBe('bike'); // Sun = long bike
+    expect(plan[6]).toBe('run'); // Sat = long run
+  });
+
+  it('places swim on Tue/Thu when swimDays is tts', () => {
+    const profile = {
+      ...mockProfile,
+      schedulePreferences: { weekendPreference: 'bike-sat-run-sun', swimDays: 'tts' },
+    };
+    const plan = getWeeklyDisciplinePlan('BASE', profile);
+    expect(plan[2]).toBe('swim+bike'); // Tue = swim+bike
+    expect(plan[4]).toBe('swim'); // Thu = swim
+  });
+
+  it('handles combined tts + run-sat-bike-sun', () => {
+    const profile = {
+      ...mockProfile,
+      schedulePreferences: { weekendPreference: 'run-sat-bike-sun', swimDays: 'tts' },
+    };
+    const plan = getWeeklyDisciplinePlan('BUILD', profile);
+    expect(plan[0]).toBe('bike'); // Sun = long bike
+    expect(plan[6]).toBe('run'); // Sat = long run
+    expect(plan[2]).toBe('swim+bike'); // Tue = swim day
+  });
+
+  it('includes strength in all preference permutations for BASE/BUILD/PEAK', () => {
+    const permutations = [
+      { weekendPreference: 'bike-sat-run-sun', swimDays: 'mwf' },
+      { weekendPreference: 'run-sat-bike-sun', swimDays: 'mwf' },
+      { weekendPreference: 'bike-sat-run-sun', swimDays: 'tts' },
+      { weekendPreference: 'run-sat-bike-sun', swimDays: 'tts' },
+    ];
+    for (const prefs of permutations) {
+      for (const phase of ['BASE', 'BUILD', 'PEAK']) {
+        const profile = { ...mockProfile, schedulePreferences: prefs };
+        const plan = getWeeklyDisciplinePlan(phase, profile);
+        expect(plan.filter((d) => d === 'strength').length).toBe(1);
+      }
+    }
+  });
+
+  it('has no strength in TAPER or RACE_WEEK regardless of preferences', () => {
+    const profile = {
+      ...mockProfile,
+      schedulePreferences: { weekendPreference: 'run-sat-bike-sun', swimDays: 'tts' },
+    };
+    const taper = getWeeklyDisciplinePlan('TAPER', profile);
+    const raceWeek = getWeeklyDisciplinePlan('RACE_WEEK', profile);
+    expect(taper.filter((d) => d === 'strength').length).toBe(0);
+    expect(raceWeek.filter((d) => d === 'strength').length).toBe(0);
+  });
+});
+
+describe('strength workout periodization via generateWorkoutLocally', () => {
+  // Use a Wednesday (strength day in BASE default plan) to get strength workouts
+  const wednesday = new Date('2026-04-01'); // a Wednesday
+
+  it('generates BASE strength with heavy compound lifts', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BASE',
+      daysToRace: 120,
+      targetDate: wednesday,
+      targetDiscipline: 'strength',
+    });
+    expect(workout.discipline).toBe('strength');
+    expect(workout.title).toContain('Max Strength');
+    const mainLifts = workout.sections.find((s) => s.name === 'Main Lifts');
+    expect(mainLifts).toBeTruthy();
+    expect(mainLifts.sets.some((s) => s.description.includes('Back squat'))).toBe(true);
+  });
+
+  it('generates BUILD strength with explosive movements', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'BUILD',
+      daysToRace: 60,
+      targetDate: wednesday,
+      targetDiscipline: 'strength',
+    });
+    expect(workout.discipline).toBe('strength');
+    expect(workout.title).toContain('Power');
+    const mainLifts = workout.sections.find((s) => s.name === 'Main Lifts');
+    expect(mainLifts.sets.some((s) => s.description.includes('Jump squat'))).toBe(true);
+  });
+
+  it('generates PEAK strength with maintenance exercises', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'PEAK',
+      daysToRace: 30,
+      targetDate: wednesday,
+      targetDiscipline: 'strength',
+    });
+    expect(workout.discipline).toBe('strength');
+    expect(workout.title).toContain('Maintenance');
+    const mainLifts = workout.sections.find((s) => s.name === 'Main Lifts');
+    expect(mainLifts.sets.some((s) => s.description.includes('Goblet squat'))).toBe(true);
+  });
+
+  it('generates TAPER strength with reduced duration', async () => {
+    const workout = await generateWorkoutLocally({
+      profile: mockProfile,
+      healthData: mockHealthData,
+      readinessScore: 72,
+      phase: 'TAPER',
+      daysToRace: 14,
+      targetDate: wednesday,
+      targetDiscipline: 'strength',
+    });
+    expect(workout.discipline).toBe('strength');
+    expect(workout.duration).toBeLessThanOrEqual(30);
+  });
+});
+
 describe('generateAlternativeWorkout with running profile', () => {
   it('returns run or strength for running profile', async () => {
     const alt = await generateAlternativeWorkout({
@@ -518,6 +653,9 @@ describe('generateWorkoutLocally with trends', () => {
       workout: { disciplineBalance: { run: 3, bike: 2, swim: 0 } },
     };
 
+    // Use a known Tuesday (day=2) so the base plan maps to 'run' but
+    // rebalancing swaps to swim (the under-trained discipline).
+    const tuesday = new Date('2026-03-31'); // a Tuesday
     const workout = await generateWorkoutLocally({
       profile: mockProfile,
       healthData: mockHealthData,
@@ -525,6 +663,7 @@ describe('generateWorkoutLocally with trends', () => {
       phase: 'BUILD',
       daysToRace: 60,
       trends,
+      targetDate: tuesday,
     });
 
     // swim has 0 sessions, should be prioritized (unless it's a rest day)

@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.dailytrain.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "CFBundleDisplayName": "DTrain",
         "NSHealthShareUsageDescription": "DailyTrain reads your health data to personalize your training plan.",
@@ -36,7 +36,8 @@
         }
       ],
       "./plugins/withLlamaRN.js",
-      "./plugins/withAppStoreTeam.js"
+      "./plugins/withAppStoreTeam.js",
+      "./plugins/withPrivacyManifest.js"
     ]
   }
 }

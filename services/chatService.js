@@ -558,6 +558,76 @@ function parseAllScheduleIntents(message) {
     intents.avoidDays = days;
   }
 
+  // Weekend preference detection
+  const weekendSwapKeywords = [
+    'bike saturday',
+    'bike on saturday',
+    'run saturday',
+    'run on saturday',
+    'bike sunday',
+    'bike on sunday',
+    'run sunday',
+    'run on sunday',
+    'swap weekend',
+    'flip weekend',
+  ];
+  for (const kw of weekendSwapKeywords) {
+    if (lower.includes(kw)) {
+      if (
+        lower.includes('run saturday') ||
+        lower.includes('run on saturday') ||
+        lower.includes('bike sunday') ||
+        lower.includes('bike on sunday')
+      ) {
+        intents.weekendPreference = 'run-sat-bike-sun';
+      } else {
+        intents.weekendPreference = 'bike-sat-run-sun';
+      }
+      break;
+    }
+  }
+
+  // Swim day preference detection
+  const swimDayKeywords = [
+    'swim monday',
+    'swim wednesday',
+    'swim friday',
+    'swim mon',
+    'swim wed',
+    'swim fri',
+    'swim tuesday',
+    'swim thursday',
+    'swim tue',
+    'swim thu',
+    'swim on monday',
+    'swim on tuesday',
+    'swim on wednesday',
+    'swim on thursday',
+    'swim on friday',
+    'move swim',
+    'change swim days',
+    'swim days',
+  ];
+  if (swimDayKeywords.some((kw) => lower.includes(kw))) {
+    if (
+      lower.includes('tue') ||
+      lower.includes('thu') ||
+      lower.includes('tuesday') ||
+      lower.includes('thursday')
+    ) {
+      intents.swimDays = 'tts';
+    } else if (
+      lower.includes('mon') ||
+      lower.includes('wed') ||
+      lower.includes('fri') ||
+      lower.includes('monday') ||
+      lower.includes('wednesday') ||
+      lower.includes('friday')
+    ) {
+      intents.swimDays = 'mwf';
+    }
+  }
+
   // Default to longDays if nothing detected
   if (Object.keys(intents).length === 0) {
     intents.longDays = days;
@@ -573,11 +643,15 @@ function parseAllScheduleIntents(message) {
 async function handleSchedulePreference(userMessage, context) {
   const { athleteProfile, onProfileUpdate } = context;
   const days = parseDaysFromMessage(userMessage);
+  const intents = parseAllScheduleIntents(userMessage);
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  if (days.length === 0) {
-    // Let the AI figure out the intent and respond helpfully
+  // Check if we detected any intent (including string-valued weekendPreference/swimDays)
+  const hasStringIntents = intents.weekendPreference || intents.swimDays;
+  const hasDayIntents = days.length > 0;
+
+  if (!hasStringIntents && !hasDayIntents) {
     const systemPrompt = buildCoachSystemPrompt(context);
     const prompt = `${userMessage}\n\n[The athlete is trying to change their schedule preference but the specific days are unclear. Ask them to clarify which days, and give examples based on their current plan. Keep it under 80 words.]`;
     const aiResponse = await runInference(systemPrompt, prompt);
@@ -585,8 +659,6 @@ async function handleSchedulePreference(userMessage, context) {
     return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Monday'.`;
   }
 
-  // Apply all detected intents in a single profile update
-  const intents = parseAllScheduleIntents(userMessage);
   const existing = athleteProfile.schedulePreferences || {};
   const updated = {
     ...athleteProfile,
@@ -599,12 +671,23 @@ async function handleSchedulePreference(userMessage, context) {
   await onProfileUpdate(updated);
 
   const changeDescs = Object.entries(intents)
-    .map(([intent, intentDays]) => {
-      const dayList = intentDays.map((d) => dayNames[d]).join(' and ');
+    .map(([intent, intentValue]) => {
+      if (intent === 'weekendPreference') {
+        return intentValue === 'run-sat-bike-sun'
+          ? 'long run on Saturday and long bike on Sunday'
+          : 'long bike on Saturday and long run on Sunday';
+      }
+      if (intent === 'swimDays') {
+        return intentValue === 'tts'
+          ? 'swim sessions on Tue/Thu/Sat'
+          : 'swim sessions on Mon/Wed/Fri';
+      }
+      if (!Array.isArray(intentValue)) return null;
+      const dayList = intentValue.map((d) => dayNames[d]).join(' and ');
       return {
         longDays: `long sessions on ${dayList}`,
-        restDays: `${dayList} as rest day${intentDays.length > 1 ? 's' : ''}`,
-        avoidDays: `${dayList} as no-training day${intentDays.length > 1 ? 's' : ''}`,
+        restDays: `${dayList} as rest day${intentValue.length > 1 ? 's' : ''}`,
+        avoidDays: `${dayList} as no-training day${intentValue.length > 1 ? 's' : ''}`,
       }[intent];
     })
     .filter(Boolean);

@@ -5,7 +5,7 @@
 Always use the personal GitHub account for this project:
 
 - **User:** ecimionatto
-- **Email:** ecimionatto@users.noreply.github.com
+- **Email:** ecimionatto@gmail.com
 - **Remote:** https://github.com/ecimionatto/daily-train-app.git
 - **Active `gh` account:** ecimionatto
 
@@ -23,7 +23,7 @@ Local git config is already pinned — do not change:
 
 ```
 git config --local user.name "ecimionatto"
-git config --local user.email "ecimionatto@users.noreply.github.com"
+git config --local user.email "ecimionatto@gmail.com"
 ```
 
 ## Project Overview
@@ -58,6 +58,9 @@ The training plan must be continuously evaluated and adapted based on:
 3. **Coach conversations** — when the athlete reports fatigue, injury, motivation issues, or requests changes through chat, the coach should factor this into future workout generation and recommendations.
 4. **Weekly reviews** — Sunday evening auto-review (`generateWeeklyReview`) must analyze the full week's compliance, discipline balance, and health trends, then suggest concrete adjustments for the next week.
 5. **Race proximity** — as race day approaches, training phases (BASE → BUILD → PEAK → TAPER → RACE_WEEK) must shift focus from volume to intensity to recovery, with the plan adapting if the athlete is behind or ahead of schedule.
+
+6. **Schedule preferences** — athletes choose preferred weekend long session order (`weekendPreference`: bike-sat-run-sun or run-sat-bike-sun) and swim days (`swimDays`: mwf or tts) during onboarding. These are stored in `athleteProfile.schedulePreferences` and drive the weekly plan template in `getWeeklyDisciplinePlan()`.
+7. **Strength periodization** — strength workouts follow the High-Low stacking model (same day as hard intervals, ≥6h apart). Exercises are periodized by training phase: BASE=max strength (heavy compound), BUILD=power/explosive, PEAK=maintenance, TAPER=reduced, RACE_WEEK=none. See `buildStrengthWorkout()` in `localModel.js`.
 
 The workout generation (`generateWorkoutLocally`) and coach responses (`getCoachResponse`) must always consider the athlete's recent history, not just the current day's data.
 

@@ -328,7 +328,7 @@ export async function generateWorkoutLocally({
     targetDiscipline === 'swim+bike'
       ? `\nDISCIPLINE swim+bike = TWO-A-DAY: Generate two sections — "Morning — Swim" (AM, moderate Z2-Z3 OK) and "Afternoon — Bike" (PM, MUST be easy Z1-Z2 only). Athlete waits ≥4h between sessions. Split total duration ~50% swim / 50% bike.`
       : targetDiscipline === 'strength'
-        ? `\nSTRENGTH SESSION RULES: Compound movements only (squats, deadlifts, lunges, hip hinges, rows, pull-ups). Heavy weight, low reps: 3–5 sets × 4–6 reps per exercise. NEVER train to failure — stop with 1–2 reps in reserve. No isolation or high-rep "toning" sets. Goal is neuromuscular strength without muscle bulk. This session is scheduled ≥6h after the main triathlon session today. Sections: Warmup (movement prep), Main Lifts (2–3 compound exercises with sets×reps), Accessory (1 core or hip-stability movement), Cooldown.`
+        ? `\nSTRENGTH SESSION RULES: Phase=${phase}. ${phase === 'BUILD' ? 'POWER phase — moderate weight moved fast (jump squats, hang cleans, box jumps, plyometrics).' : phase === 'PEAK' || phase === 'TAPER' ? 'MAINTENANCE phase — preserve strength, no new load (goblet squats, SL RDL, planks, calf raises).' : 'MAX STRENGTH phase — heavy compound lifts (back squat 4×5, RDL 4×5, bent-over row 3×5, split squat 3×6/side).'} Focus: single-leg stability, tendon stiffness, core anti-rotation. NEVER train to failure — 1–2 reps in reserve. Scheduled ≥6h after main session. Sections: Warmup (movement prep), Main Lifts (2–3 exercises), Accessory (stability/anti-rotation), Cooldown.`
         : '';
 
   const systemPrompt = `You are an elite ${coachType} coach. Generate a JSON workout.
@@ -816,34 +816,79 @@ export function isRestWeek(daysToRace) {
   return weeksOut % 4 === 0;
 }
 
+/**
+ * Resolve schedule preference defaults from profile.
+ * Returns { weekendPreference, swimDays } with sensible defaults.
+ */
+function getScheduleDefaults(profile) {
+  const prefs = profile?.schedulePreferences || {};
+  return {
+    weekendPreference: prefs.weekendPreference || 'bike-sat-run-sun',
+    swimDays: prefs.swimDays || 'mwf',
+  };
+}
+
 export function getWeeklyDisciplinePlan(phase, profile) {
   if (isRunningOnly(profile)) {
     const basePlan = getRunningWeekPlan(phase);
     return applySchedulePreferences(basePlan, profile, 'run');
   }
+
+  // TAPER and RACE_WEEK are fixed — no preference variation
+  if (phase === 'TAPER') {
+    return applySchedulePreferences(
+      ['rest', 'swim', 'run', 'bike', 'run', 'rest', 'swim'],
+      profile,
+      'brick'
+    );
+  }
+  if (phase === 'RACE_WEEK') {
+    return applySchedulePreferences(
+      ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
+      profile,
+      'brick'
+    );
+  }
+
   // Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
-  // Plan rules (per agentConstitution PLAN_RULES):
-  //   - Strength 1x/week in BASE/BUILD/PEAK
-  //   - Brick on Saturday (bike+run combined - contributes to both discipline counts)
-  //   - No consecutive same discipline
-  //   - Aim for each of swim/bike/run >= 3x/week (brick counts for both bike+run)
-  //   - TAPER/RACE_WEEK: volume drop, no strength
-  const plans = {
-    // BASE: Sun=long run, Mon=swim+bike, Wed=strength, Sat=brick
-    // Swim=2(Mon+Fri), Bike=2(Mon+Sat), Run=4(Sun+Tue+Thu+Sat), Strength=1(Wed)
-    BASE: ['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick'],
-    // BUILD: Sun=long run, Mon+Wed=swim+bike double days, Thu=strength, Sat=brick
-    // Swim=3(Mon+Wed+Fri), Bike=3(Mon+Wed+Sat), Run=3(Sun+Tue+Sat), Strength=1(Thu)
-    BUILD: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
-    // PEAK: same template as BUILD; intensity increases in generated workouts
-    PEAK: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
-    // TAPER: no double sessions — reduced volume
-    TAPER: ['rest', 'swim', 'run', 'bike', 'run', 'rest', 'swim'],
-    // RACE_WEEK: minimal load
-    RACE_WEEK: ['rest', 'rest', 'swim', 'bike', 'run', 'rest', 'rest'],
+  // Dynamic plan based on athlete schedule preferences.
+  // 4 permutations: (mwf|tts) × (bike-sat-run-sun|run-sat-bike-sun)
+  const { weekendPreference, swimDays } = getScheduleDefaults(profile);
+  const key = `${swimDays}_${weekendPreference}`;
+
+  // Templates indexed by permutation key.
+  // High-Low stacking: strength placed same day as hardest interval session.
+  const templates = {
+    // --- MWF swim, Bike Sat / Run Sun (original default) ---
+    'mwf_bike-sat-run-sun': {
+      BASE: ['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick'],
+      BUILD: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
+      PEAK: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
+    },
+    // --- MWF swim, Run Sat / Bike Sun ---
+    'mwf_run-sat-bike-sun': {
+      BASE: ['bike', 'swim+bike', 'run', 'strength', 'run', 'swim', 'run'],
+      BUILD: ['bike', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'run'],
+      PEAK: ['bike', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'run'],
+    },
+    // --- TTS swim, Bike Sat / Run Sun ---
+    'tts_bike-sat-run-sun': {
+      BASE: ['run', 'run', 'swim+bike', 'strength', 'swim', 'run', 'brick'],
+      BUILD: ['run', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'brick'],
+      PEAK: ['run', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'brick'],
+    },
+    // --- TTS swim, Run Sat / Bike Sun ---
+    'tts_run-sat-bike-sun': {
+      BASE: ['bike', 'run', 'swim+bike', 'strength', 'swim', 'run', 'run'],
+      BUILD: ['bike', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'run'],
+      PEAK: ['bike', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'run'],
+    },
   };
-  const basePlan = plans[phase] || plans.BASE;
-  return applySchedulePreferences(basePlan, profile, 'brick');
+
+  const planSet = templates[key] || templates['mwf_bike-sat-run-sun'];
+  const basePlan = planSet[phase] || planSet.BASE;
+  const longDiscipline = weekendPreference === 'run-sat-bike-sun' ? 'run' : 'brick';
+  return applySchedulePreferences(basePlan, profile, longDiscipline);
 }
 
 /**
@@ -954,6 +999,123 @@ function formatRecentWorkouts(completedWorkouts) {
     .join(', ');
 }
 
+/**
+ * Build a phase-periodized strength workout.
+ * BASE = max strength (heavy compound), BUILD = power/explosive,
+ * PEAK = maintenance, TAPER = reduced maintenance, RACE_WEEK = rest.
+ */
+function buildStrengthWorkout(phase, duration) {
+  const dur = Math.min(duration, phase === 'TAPER' ? 30 : 50);
+  const movementPrep = {
+    name: 'Movement Prep',
+    notes: '8–10 min. Activate hips, glutes, and thoracic spine before loading.',
+    sets: [
+      { description: '2 min light cardio (row or bike)', zone: 1 },
+      { description: '10 hip circles each side + 10 glute bridges', zone: null },
+      { description: '10 band pull-aparts + 10 shoulder rotations', zone: null },
+    ],
+  };
+  const cooldown = {
+    name: 'Cooldown',
+    notes: '5–8 min. Focus on hip flexors, hamstrings, and thoracic spine.',
+    sets: [{ description: '5 min stretching — hips, hamstrings, lats', zone: null }],
+  };
+
+  if (phase === 'BUILD') {
+    return {
+      title: 'Power & Explosiveness',
+      discipline: 'strength',
+      duration: dur,
+      summary:
+        'Moderate weight moved fast — build explosive power for race-day snap. Scheduled ≥6h after your main session. Stop every set with 1–2 reps in reserve.',
+      intensity: 'moderate',
+      sections: [
+        movementPrep,
+        {
+          name: 'Main Lifts',
+          notes: 'Move weight fast. Rest 2–3 min between sets. Focus on speed of movement.',
+          sets: [
+            { description: 'Jump squats — 3 × 5 reps (explosive)', zone: null },
+            { description: 'Hang clean — 4 × 3 reps (moderate weight, fast)', zone: null },
+          ],
+        },
+        {
+          name: 'Accessory',
+          notes: 'Single-leg stability and anti-rotation for run economy.',
+          sets: [
+            { description: 'Single-leg deadlift — 3 × 6 each side (moderate)', zone: null },
+            { description: "Box jumps — 3 × 5 reps (step down, don't jump down)", zone: null },
+            { description: 'Pallof press — 3 × 10 each side (anti-rotation)', zone: null },
+          ],
+        },
+        cooldown,
+      ],
+    };
+  }
+
+  if (phase === 'PEAK' || phase === 'TAPER') {
+    return {
+      title: 'Strength Maintenance',
+      discipline: 'strength',
+      duration: dur,
+      summary:
+        'Maintain the strength you built — do not add load. Keep nervous system primed without creating fatigue.',
+      intensity: 'moderate',
+      sections: [
+        movementPrep,
+        {
+          name: 'Main Lifts',
+          notes: 'Maintain only. Rest 2 min between sets. No new PRs.',
+          sets: [
+            { description: 'Goblet squat — 3 × 5 reps (moderate)', zone: null },
+            { description: 'Single-leg RDL — 3 × 6 each side (moderate)', zone: null },
+          ],
+        },
+        {
+          name: 'Accessory',
+          notes: 'Tendon stiffness and core stability.',
+          sets: [
+            { description: 'Plank — 3 × 30 sec (controlled breathing)', zone: null },
+            { description: 'Calf raises — 3 × 8 reps (heavy, slow eccentric)', zone: null },
+          ],
+        },
+        cooldown,
+      ],
+    };
+  }
+
+  // BASE (default) — Max Strength
+  return {
+    title: 'Max Strength — Foundation',
+    discipline: 'strength',
+    duration: dur,
+    summary:
+      'Heavy compound lifts to build your strength ceiling. Scheduled ≥6h after your main session. Stop every set with 1–2 reps in reserve — never train to failure.',
+    intensity: 'moderate',
+    sections: [
+      movementPrep,
+      {
+        name: 'Main Lifts',
+        notes: '4–6 reps per set. Rest 2–3 min between sets. Stop with 1–2 reps in reserve.',
+        sets: [
+          { description: 'Back squat — 4 × 5 reps (heavy)', zone: null },
+          { description: 'Romanian deadlift — 4 × 5 reps (heavy)', zone: null },
+          { description: 'Bent-over row — 3 × 5 reps each side', zone: null },
+        ],
+      },
+      {
+        name: 'Accessory',
+        notes: 'Single-leg stability and anti-rotation — key for run economy.',
+        sets: [
+          { description: 'Bulgarian split squat — 3 × 6 each side (moderate)', zone: null },
+          { description: 'Dead bug — 3 × 8 each side (slow, controlled)', zone: null },
+        ],
+      },
+      cooldown,
+    ],
+  };
+}
+
 export function getBaseDuration(phase, weeklyHours) {
   const hoursMap = { '5-7': 50, '8-10': 70, '11-14': 85, '15+': 100 };
   const base = hoursMap[weeklyHours] || 60;
@@ -967,7 +1129,7 @@ export function getBaseDuration(phase, weeklyHours) {
   return Math.round(base * (phaseMultiplier[phase] || 1));
 }
 
-function buildWorkout(discipline, duration, readiness, _phase, _profile) {
+function buildWorkout(discipline, duration, readiness, phase, _profile) {
   const intensity = readiness >= 75 ? 'hard' : 'moderate';
 
   const workouts = {
@@ -1089,50 +1251,7 @@ function buildWorkout(discipline, duration, readiness, _phase, _profile) {
         },
       ],
     },
-    strength: {
-      title: 'Neuromuscular Strength',
-      discipline: 'strength',
-      duration: Math.min(duration, 50),
-      summary:
-        'Heavy compound lifts to build neuromuscular strength without bulk. Scheduled after your main session today (≥6h apart). Stop every set with 1–2 reps in reserve — never train to failure.',
-      intensity: 'moderate',
-      sections: [
-        {
-          name: 'Movement Prep',
-          notes: '8–10 min. Activate hips, glutes, and thoracic spine before loading.',
-          sets: [
-            { description: '2 min light cardio (row or bike)', zone: 1 },
-            { description: '10 hip circles each side + 10 glute bridges', zone: null },
-            { description: '10 band pull-aparts + 10 shoulder rotations', zone: null },
-          ],
-        },
-        {
-          name: 'Main Lifts',
-          notes: '4–6 reps per set. Rest 2–3 min between sets. Stop with 1–2 reps in reserve.',
-          sets: [
-            { description: 'Back squat or goblet squat — 4 × 5 reps (heavy)', zone: null },
-            { description: 'Romanian deadlift — 4 × 5 reps (heavy)', zone: null },
-            {
-              description: 'Bent-over row or single-arm DB row — 3 × 5 reps each side',
-              zone: null,
-            },
-          ],
-        },
-        {
-          name: 'Accessory',
-          notes: 'Hip stability and anti-rotation — key for run economy.',
-          sets: [
-            { description: 'Single-leg deadlift — 3 × 6 each side (moderate weight)', zone: null },
-            { description: 'Dead bug — 3 × 8 each side (slow, controlled)', zone: null },
-          ],
-        },
-        {
-          name: 'Cooldown',
-          notes: '5–8 min. Focus on hip flexors, hamstrings, and thoracic spine.',
-          sets: [{ description: '5 min stretching — hips, hamstrings, lats', zone: null }],
-        },
-      ],
-    },
+    strength: buildStrengthWorkout(phase, duration),
     brick: {
       title: intensity === 'hard' ? 'Race-Pace Brick' : 'Aerobic Brick',
       discipline: 'brick',

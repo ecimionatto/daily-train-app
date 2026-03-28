@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getCoachResponse,
@@ -27,6 +27,7 @@ export function ChatProvider({ children }) {
   const [messages, setMessages] = useState([]);
   const [contextHistory, setContextHistory] = useState([]);
   const [isResponding, setIsResponding] = useState(false);
+  const isRespondingRef = useRef(false);
   const [hasGreetedToday, setHasGreetedToday] = useState(false);
   const [hasReviewedThisWeek, setHasReviewedThisWeek] = useState(false);
 
@@ -70,9 +71,9 @@ export function ChatProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Proactive greeting trigger
+  // Proactive greeting trigger — skip if a response is already in-flight
   useEffect(() => {
-    if (todayWorkout && !hasGreetedToday && athleteProfile) {
+    if (todayWorkout && !hasGreetedToday && athleteProfile && !isRespondingRef.current) {
       sendProactiveGreeting();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +222,9 @@ export function ChatProvider({ children }) {
   }
 
   async function sendProactiveGreeting() {
+    // Skip if a user-initiated response is in-flight (prevents double-bubble)
+    if (isRespondingRef.current) return;
+
     const today = new Date().toISOString().slice(0, 10);
     // Check current session for proactive greeting already sent today
     const storedSessionStr = await AsyncStorage.getItem(SESSION_KEY).catch(() => null);
@@ -328,6 +332,9 @@ export function ChatProvider({ children }) {
     async (text) => {
       if (!text.trim() || isResponding) return;
 
+      // Set ref synchronously to block concurrent greeting/review
+      isRespondingRef.current = true;
+
       const phase = getTrainingPhase();
       const daysToRace = getDaysToRace();
 
@@ -339,8 +346,12 @@ export function ChatProvider({ children }) {
         metadata: { phase, readinessScore },
       };
 
-      const updatedMessages = [...messages, athleteMessage];
-      setMessages(updatedMessages);
+      // Use functional updater to avoid stale closures
+      let updatedMessages;
+      setMessages((prev) => {
+        updatedMessages = [...prev, athleteMessage];
+        return updatedMessages;
+      });
       setIsResponding(true);
 
       try {
@@ -405,15 +416,17 @@ export function ChatProvider({ children }) {
           content: errorContent,
           timestamp: new Date().toISOString(),
         };
-        const finalMessages = [...updatedMessages, errorMessage];
-        setMessages(finalMessages);
-        await persistSession(finalMessages);
+        setMessages((prev) => {
+          const finalMessages = [...prev, errorMessage];
+          persistSession(finalMessages);
+          return finalMessages;
+        });
       }
 
+      isRespondingRef.current = false;
       setIsResponding(false);
     },
     [
-      messages,
       contextHistory,
       isResponding,
       athleteProfile,
