@@ -53,6 +53,7 @@ function MainTabs() {
 
 function AppNavigator() {
   const { isAuthenticated } = useAuth();
+  const { athleteProfile } = useApp();
   const [isOnboarded, setIsOnboarded] = useState(null);
   const [checkingOnboarded, setCheckingOnboarded] = useState(false);
 
@@ -63,6 +64,13 @@ function AppNavigator() {
       setIsOnboarded(null);
     }
   }, [isAuthenticated]);
+
+  // React to profile being cleared (resetToOnboarding)
+  useEffect(() => {
+    if (athleteProfile === null && isOnboarded) {
+      setIsOnboarded(false);
+    }
+  }, [athleteProfile, isOnboarded]);
 
   async function checkOnboarding() {
     setCheckingOnboarded(true);

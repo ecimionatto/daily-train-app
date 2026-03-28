@@ -1,5 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  Alert,
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
 import { buildKarvonenZones } from '../services/healthKit';
@@ -19,8 +27,14 @@ function formatDiscipline(d) {
 }
 
 export default function PlanSettingsScreen({ navigation, route: _route }) {
-  const { athleteProfile, getTrainingPhase, getDaysToRace, resetTrainingPlan, saveProfile } =
-    useApp();
+  const {
+    athleteProfile,
+    getTrainingPhase,
+    getDaysToRace,
+    resetTrainingPlan,
+    resetToOnboarding,
+    saveProfile,
+  } = useApp();
 
   const phase = getTrainingPhase();
   const daysToRace = getDaysToRace();
@@ -92,6 +106,28 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleStartOver() {
+    Alert.alert(
+      'Start Over?',
+      'This will erase your profile, workouts, and chat history. You will go through setup again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Start Over',
+          style: 'destructive',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              await resetToOnboarding();
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
   }
 
   async function handleSaveOnly() {
@@ -308,6 +344,22 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
         </TouchableOpacity>
       </View>
 
+      {/* Start Over — clears everything and returns to onboarding */}
+      <View style={styles.dangerCard}>
+        <Text style={styles.dangerTitle}>START OVER</Text>
+        <Text style={styles.dangerDescription}>
+          Clears your profile, workouts, and chat history. You will be taken back to setup as if
+          this were your first time using the app.
+        </Text>
+        <TouchableOpacity
+          style={[styles.startOverButton, saving && styles.dangerButtonDisabled]}
+          onPress={handleStartOver}
+          disabled={saving}
+        >
+          <Text style={styles.dangerButtonText}>{saving ? 'RESETTING…' : 'START OVER'}</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={{ height: 100 }} />
     </ScrollView>
   );
@@ -518,6 +570,12 @@ const styles = StyleSheet.create({
   dangerButton: {
     borderWidth: 2,
     borderColor: '#ff6b6b',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  startOverButton: {
+    backgroundColor: '#ff6b6b',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',

@@ -301,6 +301,37 @@ export function AppProvider({ children }) {
   }
 
   /**
+   * Full reset: clears profile + all workout data and returns the user
+   * to the onboarding flow as if they just signed up.
+   */
+  async function resetToOnboarding() {
+    try {
+      await AsyncStorage.multiRemove([
+        'athleteProfile',
+        'todayWorkout',
+        'tomorrowWorkout',
+        'workoutHistory',
+        'chatConversation',
+        'chatContextHistory',
+        'chatSessionMessages',
+      ]);
+      setAthleteProfile(null);
+      setTodayWorkout(null);
+      setTomorrowWorkout(null);
+      setWorkoutHistory([]);
+      setCompletedWorkouts([]);
+      setHealthData(null);
+      setReadinessScore(null);
+      setRecentScore(null);
+      setOverallReadiness(null);
+      setAlternativeWorkout(null);
+      setTrends(null);
+    } catch (e) {
+      console.warn('Failed to reset to onboarding:', e);
+    }
+  }
+
+  /**
    * Clear the cached today workout and reset state to null.
    * Used after coach-driven plan changes so DashboardScreen regenerates
    * a fresh workout based on the updated athlete profile.
@@ -572,6 +603,7 @@ export function AppProvider({ children }) {
     generateAndSaveTomorrow,
     rotateTomorrowWorkout,
     resetTrainingPlan,
+    resetToOnboarding,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
