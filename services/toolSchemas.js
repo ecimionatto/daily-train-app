@@ -15,7 +15,7 @@ export const COACH_TOOLS = [
     function: {
       name: 'set_schedule',
       description:
-        'Update weekly training schedule. Call when athlete wants to move, change, or set days for any discipline (strength, swim, rest, long sessions, weekend preference).',
+        'Rearrange the WEEKLY training schedule — move disciplines to different days of the week, change which days are rest days, set swim day pattern, or move strength day. Call when athlete says "move X to Monday", "rest on Friday", "swim on Tue/Thu/Sat". NOT for replacing today\'s single workout.',
       parameters: {
         type: 'object',
         properties: {
@@ -58,7 +58,7 @@ export const COACH_TOOLS = [
     function: {
       name: 'swap_workout',
       description:
-        "Replace today's workout with a different discipline or modified version. Call when athlete can't do today's workout, wants something different, or has constraints (injury, time, equipment).",
+        'Replace TODAY\'s single workout with a different discipline. ONLY for today, not for rearranging the weekly schedule. Call when athlete says "I can\'t run today", "swap today for bike", or has an injury affecting today\'s session.',
       parameters: {
         type: 'object',
         properties: {
