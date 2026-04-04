@@ -15,6 +15,7 @@ import {
   PLAN_RULES,
 } from './agentConstitution';
 import { processMessage as agentProcessMessage } from './agentOrchestrator';
+import { sanitizeModelOutput } from './modelSanitizer';
 
 const FATIGUE_KEYWORDS = [
   'tired',
@@ -473,9 +474,8 @@ export async function getCoachResponse(userMessage, context, conversationHistory
 
   try {
     const modelResponse = await runInference(systemPrompt, userPrompt);
-    return modelResponse
-      ? modelResponse.trim()
-      : generateFallbackResponse(category, userMessage, context);
+    const sanitized = sanitizeModelOutput(modelResponse);
+    return sanitized || generateFallbackResponse(category, userMessage, context);
   } catch (e) {
     if (e instanceof ModelNotReadyError) {
       const fallback = generateFallbackResponse(category, userMessage, context);

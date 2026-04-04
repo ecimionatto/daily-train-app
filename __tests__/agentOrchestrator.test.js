@@ -36,11 +36,16 @@ describe('processMessage', () => {
   });
 
   it('returns text response when no tool is called', async () => {
-    runToolInference.mockResolvedValue({ text: 'Great question!', toolCalls: [] });
+    runToolInference.mockResolvedValue({
+      text: 'Great question about periodization! It means cycling training phases over time.',
+      toolCalls: [],
+    });
 
     const result = await processMessage('how does periodization work?', mockContext);
 
-    expect(result).toBe('Great question!');
+    expect(result).toBe(
+      'Great question about periodization! It means cycling training phases over time.'
+    );
     expect(executeSkillPreview).not.toHaveBeenCalled();
   });
 
