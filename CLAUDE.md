@@ -142,6 +142,15 @@ The app is designed to remain fully functional offline (all data on-device). Pha
 - Periodisation analytics: flag when the athlete is deviating from the planned build curve
 - These run as a separate API call (`getAdvancedCoachResponse`) that falls back to on-device Qwen if network is unavailable
 
+## Secrets & Credentials
+
+- **App-specific password** (for App Store uploads via `altool`):
+  - **Local builds:** Stored in macOS Keychain under service `DailyTrain-Altool`, account `ecimio@icloud.com`. Retrieve with: `security find-generic-password -s "DailyTrain-Altool" -w`
+  - **CI/CD:** Stored as GitHub secret `APP_SPECIFIC_PASSWORD` (set via `gh secret set`)
+  - **To set locally:** `security add-generic-password -s "DailyTrain-Altool" -a "ecimio@icloud.com" -w "xxxx-xxxx-xxxx-xxxx"`
+  - Generate new passwords at appleid.apple.com → Sign In → App-Specific Passwords
+- **Never hardcode secrets** in skills, scripts, or code — always pull from Keychain (local) or GitHub secrets (CI)
+
 ## iOS Build & Deploy
 
 ### Personal Team (Free Apple Account)

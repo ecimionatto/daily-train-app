@@ -17,6 +17,7 @@ import {
 
 function disciplineLabel(discipline) {
   if (discipline === 'swim+bike') return 'SWIM + BIKE';
+  if (discipline === 'swim+run') return 'SWIM + RUN';
   if (discipline === 'brick') return 'BIKE + RUN';
   return discipline?.toUpperCase() || '';
 }

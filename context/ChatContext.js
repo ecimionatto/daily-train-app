@@ -28,6 +28,7 @@ export function ChatProvider({ children }) {
   const [contextHistory, setContextHistory] = useState([]);
   const [isResponding, setIsResponding] = useState(false);
   const isRespondingRef = useRef(false);
+  const pendingActionRef = useRef(null);
   const [hasGreetedToday, setHasGreetedToday] = useState(false);
   const [hasReviewedThisWeek, setHasReviewedThisWeek] = useState(false);
 
@@ -370,8 +371,23 @@ export function ChatProvider({ children }) {
           conversationSummary: buildContextForAI(updatedMessages, contextHistory),
           onWorkoutSwap: swapTodayWorkout,
           onProfileUpdate: onProfileUpdate,
+          pendingAction: pendingActionRef.current,
         };
-        const responseText = await getCoachResponse(text.trim(), context, updatedMessages);
+        const response = await getCoachResponse(text.trim(), context, updatedMessages);
+
+        // Handle structured responses from skill executor (preview/confirm flow)
+        let responseText;
+        if (response && typeof response === 'object' && response.text) {
+          responseText = response.text;
+          if (response.pendingAction) {
+            pendingActionRef.current = response.pendingAction;
+          }
+          if (response.clearPending) {
+            pendingActionRef.current = null;
+          }
+        } else {
+          responseText = response;
+        }
 
         const coachMessage = {
           id: `msg_${Date.now()}_coach`,

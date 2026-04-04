@@ -78,6 +78,13 @@ describe('classifyMessage', () => {
     expect(classifyMessage('I want my strength session on Wednesday')).toBe('schedule_preference');
     expect(classifyMessage('Change strength day to Friday')).toBe('schedule_preference');
     expect(classifyMessage('Move weights to Monday')).toBe('schedule_preference');
+    // Natural phrasings with words between keyword parts
+    expect(classifyMessage('Move my strength to Monday')).toBe('schedule_preference');
+    expect(classifyMessage('Change my strength workout to Tuesday')).toBe('schedule_preference');
+    expect(classifyMessage('Can you move my strength training to Monday?')).toBe(
+      'schedule_preference'
+    );
+    expect(classifyMessage('I want strength training on Monday')).toBe('schedule_preference');
   });
 
   it('classifies training plan questions', () => {

@@ -115,20 +115,32 @@ ls -lh build/AppStore/DailyTrain.ipa
 
 ### 8. Upload to App Store Connect
 
+**Retrieve the app-specific password** from the macOS Keychain (already stored):
+
+```bash
+APP_PWD=$(security find-generic-password -s "DailyTrain-Altool" -w 2>/dev/null)
+```
+
+The password is stored in two places:
+- **Local:** macOS Keychain under service `DailyTrain-Altool`
+- **CI/CD:** GitHub secret `APP_SPECIFIC_PASSWORD`
+
+If the Keychain lookup fails (empty `APP_PWD`), ask the user for the password. Once provided, store it in both places:
+```bash
+security add-generic-password -s "DailyTrain-Altool" -a "ecimio@icloud.com" -w "THE_PASSWORD"
+gh secret set APP_SPECIFIC_PASSWORD --body "THE_PASSWORD"
+```
+
+**Upload the IPA:**
+
 ```bash
 xcrun altool --upload-app \
   -f build/AppStore/DailyTrain.ipa \
   -t ios \
   -u "ecimio@icloud.com" \
-  --password "APP_SPECIFIC_PASSWORD" \
+  --password "$APP_PWD" \
   2>&1
 ```
-
-**App-specific password:** Regular Apple ID passwords don't work. The password has the format `xxxx-xxxx-xxxx-xxxx`.
-
-If you don't have it:
-1. Stop and ask the user: "Please generate an app-specific password at appleid.apple.com → Sign In → App-Specific Passwords → Generate. Label it 'DailyTrain Altool'."
-2. Once provided, run the upload.
 
 > The on-device AI model (~1.3 GB) makes this a large upload — expect 10–20 minutes on a typical connection.
 

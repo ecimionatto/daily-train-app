@@ -14,6 +14,7 @@ import {
   COACH_CONSTRAINTS,
   PLAN_RULES,
 } from './agentConstitution';
+import { processMessage as agentProcessMessage } from './agentOrchestrator';
 
 const FATIGUE_KEYWORDS = [
   'tired',
@@ -410,13 +411,32 @@ export function getOffTopicResponse() {
 
 /**
  * Process a user message and return a coach response.
- * Checks off-topic first, then tries AI model, falls back to rule-based.
+ *
+ * Flow:
+ * 1. Off-topic filter
+ * 2. Agent orchestrator (LLM tool-calling via Hammer 2.1)
+ * 3. Fallback: keyword-based handlers (classifyMessage → handler chain)
+ * 4. Fallback: AI model text inference
+ * 5. Fallback: rule-based response
  */
 export async function getCoachResponse(userMessage, context, conversationHistory) {
   if (isOffTopic(userMessage)) {
     return getOffTopicResponse();
   }
 
+  // 1. Try agent orchestrator (LLM tool-calling) — handles pending confirmations too
+  try {
+    const agentResult = await agentProcessMessage(userMessage, context);
+    if (agentResult !== null) return agentResult;
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) {
+      // eslint-disable-next-line no-console
+      console.warn('[Coach] Agent orchestrator failed:', e.message);
+    }
+    // Fall through to existing handlers
+  }
+
+  // 2. Existing keyword-based handlers (fallback chain)
   const category = classifyMessage(userMessage);
 
   // Handle full plan regeneration requests
@@ -429,7 +449,7 @@ export async function getCoachResponse(userMessage, context, conversationHistory
     return handleProfileChange(userMessage, context);
   }
 
-  // Handle schedule preference changes
+  // Handle schedule preference changes (fallback if skill executor missed or failed)
   if (category === 'schedule_preference' && context.onProfileUpdate) {
     return handleSchedulePreference(userMessage, context);
   }
@@ -458,9 +478,6 @@ export async function getCoachResponse(userMessage, context, conversationHistory
       : generateFallbackResponse(category, userMessage, context);
   } catch (e) {
     if (e instanceof ModelNotReadyError) {
-      // AI model still loading — respond with rule-based engine so the user
-      // is never blocked. Append a soft note so they know to expect richer
-      // answers once the model finishes downloading.
       const fallback = generateFallbackResponse(category, userMessage, context);
       const progress = getModelLoadingProgress();
       const progressNote =
@@ -562,14 +579,25 @@ function parseAllScheduleIntents(message) {
     'strength on',
     'strength to',
     'move strength',
+    'move my strength',
     'change strength',
+    'change my strength',
+    'strength training on',
+    'strength training to',
+    'strength workout on',
+    'strength workout to',
     'weights on',
     'weights to',
     'move weights',
+    'move my weights',
     'gym on',
     'gym to',
+    'gym day on',
+    'gym day to',
     'lifting on',
     'lifting to',
+    'lifting day on',
+    'lifting day to',
     'strength day',
     'strength session',
   ];
@@ -1762,18 +1790,31 @@ export function classifyMessage(message) {
         'free on weekdays',
         'only train on',
         'move strength',
+        'move my strength',
         'change strength',
+        'change my strength',
         'strength on',
         'strength to',
         'strength session on',
+        'strength session to',
+        'strength training on',
+        'strength training to',
+        'strength workout on',
+        'strength workout to',
+        'strength day on',
         'strength day to',
         'move weights',
+        'move my weights',
         'weights on',
         'weights to',
         'gym on',
         'gym to',
+        'gym day on',
+        'gym day to',
         'lifting on',
         'lifting to',
+        'lifting day on',
+        'lifting day to',
       ],
     },
     {
@@ -1872,6 +1913,23 @@ export function classifyMessage(message) {
         'weekly schedule',
         'week look like',
         'this week',
+      ],
+    },
+    {
+      key: 'trend_analysis',
+      keywords: [
+        'analyze my training',
+        'training analysis',
+        'weekly review',
+        'review my week',
+        'how was my week',
+        'am i on track',
+        'training trends',
+        'any recommendations',
+        'suggest changes',
+        'optimize my plan',
+        'what should i change',
+        'how is my training',
       ],
     },
     {

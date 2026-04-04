@@ -5,6 +5,7 @@ import {
   generateReplacementWorkout,
   generateWeeklyPlanAdjustment,
   getWeeklyDisciplinePlan,
+  countDisciplineTouches,
   analyzeRecentWorkouts,
 } from '../services/localModel';
 
@@ -373,10 +374,10 @@ describe('generateWorkoutLocally with running profile', () => {
 });
 
 describe('getWeeklyDisciplinePlan with schedule preferences', () => {
-  it('returns default BASE plan with long run Sunday, swim+bike double day, strength and brick', () => {
+  it('returns default BASE plan with long run Sunday, swim+bike double days, strength and brick', () => {
     const plan = getWeeklyDisciplinePlan('BASE', mockProfile);
-    // BASE: Sun=run, Mon=swim+bike, Tue=run, Wed=strength, Thu=run, Fri=swim, Sat=brick
-    expect(plan).toEqual(['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick']);
+    // BASE: Sun=run, Mon=swim+bike, Tue=swim+run, Wed=strength, Thu=run, Fri=swim+bike, Sat=brick
+    expect(plan).toEqual(['run', 'swim+bike', 'swim+run', 'strength', 'run', 'swim+bike', 'brick']);
   });
 
   it('includes brick on Saturday for triathlon plans', () => {
@@ -403,25 +404,29 @@ describe('getWeeklyDisciplinePlan with schedule preferences', () => {
   it('has long run on Sunday and strength on Thursday in BUILD', () => {
     const plan = getWeeklyDisciplinePlan('BUILD', mockProfile);
     expect(plan[0]).toBe('run'); // Sunday = long run
-    expect(plan[4]).toBe('strength'); // Thursday = strength
+    expect(plan[4]).toBe('strength'); // Thu = strength (mwf_bike-sat-run-sun BUILD)
   });
 
-  it('sets rest days on specified days', () => {
+  it('sets rest days on specified days when feasible', () => {
+    // Rest on a single-discipline day (run at index 4) is feasible
+    // because the displaced 'run' can be absorbed without breaking 3x minimum
+    // (run count: run[0] + swim+run[2] + run[4] + brick[6] = 4, removing one still gives 3)
     const profileWithPrefs = {
       ...mockProfile,
-      schedulePreferences: { restDays: [5] },
+      schedulePreferences: { restDays: [4] },
     };
     const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
-    expect(plan[5]).toBe('rest');
+    expect(plan[4]).toBe('rest');
   });
 
-  it('handles avoidDays by setting them to rest', () => {
+  it('handles avoidDays by setting them to rest when feasible', () => {
+    // Avoid on a single-discipline day (run at index 4) is feasible
     const profileWithPrefs = {
       ...mockProfile,
-      schedulePreferences: { avoidDays: [1] },
+      schedulePreferences: { avoidDays: [4] },
     };
     const plan = getWeeklyDisciplinePlan('BASE', profileWithPrefs);
-    expect(plan[1]).toBe('rest');
+    expect(plan[4]).toBe('rest');
   });
 
   it('applies preferences to running profile', () => {
@@ -460,18 +465,19 @@ describe('getWeeklyDisciplinePlan with weekendPreference and swimDays', () => {
       schedulePreferences: { weekendPreference: 'run-sat-bike-sun', swimDays: 'mwf' },
     };
     const plan = getWeeklyDisciplinePlan('BASE', profile);
-    expect(plan[0]).toBe('bike'); // Sun = long bike
+    expect(plan[0]).toBe('brick'); // Sun = brick (bike+run)
     expect(plan[6]).toBe('run'); // Sat = long run
   });
 
-  it('places swim on Tue/Thu when swimDays is tts', () => {
+  it('places swim on Tue/Thu/Sat when swimDays is tts', () => {
     const profile = {
       ...mockProfile,
       schedulePreferences: { weekendPreference: 'bike-sat-run-sun', swimDays: 'tts' },
     };
     const plan = getWeeklyDisciplinePlan('BASE', profile);
     expect(plan[2]).toBe('swim+bike'); // Tue = swim+bike
-    expect(plan[4]).toBe('swim'); // Thu = swim
+    expect(plan[4]).toBe('swim+bike'); // Thu = swim+bike
+    expect(plan[5]).toBe('swim+run'); // Fri = swim+run
   });
 
   it('handles combined tts + run-sat-bike-sun', () => {
@@ -480,7 +486,7 @@ describe('getWeeklyDisciplinePlan with weekendPreference and swimDays', () => {
       schedulePreferences: { weekendPreference: 'run-sat-bike-sun', swimDays: 'tts' },
     };
     const plan = getWeeklyDisciplinePlan('BUILD', profile);
-    expect(plan[0]).toBe('bike'); // Sun = long bike
+    expect(plan[0]).toBe('brick'); // Sun = brick (bike+run)
     expect(plan[6]).toBe('run'); // Sat = long run
     expect(plan[2]).toBe('swim+bike'); // Tue = swim day
   });
@@ -539,10 +545,28 @@ describe('getWeeklyDisciplinePlan with weekendPreference and swimDays', () => {
   it('ensures at least 3 core discipline sessions for low-hour athletes', () => {
     const lowHoursProfile = { ...mockProfile, weeklyHours: '5-7', weakestDiscipline: 'Swim' };
     const plan = getWeeklyDisciplinePlan('BASE', lowHoursProfile);
-    const swimCount = plan.filter((d) => d === 'swim' || d === 'swim+bike').length;
-    const runCount = plan.filter((d) => d === 'run' || d === 'brick').length;
-    expect(swimCount).toBeGreaterThanOrEqual(2);
-    expect(runCount).toBeGreaterThanOrEqual(3);
+    const { swim, run } = countDisciplineTouches(plan);
+    expect(swim).toBeGreaterThanOrEqual(2);
+    expect(run).toBeGreaterThanOrEqual(3);
+  });
+
+  it('guarantees 3x swim, 3x bike, 3x run for all 8+ hour permutations', () => {
+    const permutations = [
+      { weekendPreference: 'bike-sat-run-sun', swimDays: 'mwf' },
+      { weekendPreference: 'run-sat-bike-sun', swimDays: 'mwf' },
+      { weekendPreference: 'bike-sat-run-sun', swimDays: 'tts' },
+      { weekendPreference: 'run-sat-bike-sun', swimDays: 'tts' },
+    ];
+    for (const prefs of permutations) {
+      for (const phase of ['BASE', 'BUILD', 'PEAK']) {
+        const profile = { ...mockProfile, weeklyHours: '8-10', schedulePreferences: prefs };
+        const plan = getWeeklyDisciplinePlan(phase, profile);
+        const counts = countDisciplineTouches(plan);
+        expect(counts.swim).toBeGreaterThanOrEqual(3);
+        expect(counts.bike).toBeGreaterThanOrEqual(3);
+        expect(counts.run).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 });
 

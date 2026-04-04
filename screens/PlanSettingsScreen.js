@@ -18,6 +18,7 @@ const WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
 
 const DISCIPLINE_DISPLAY = {
   'swim+bike': 'Swim + Bike',
+  'swim+run': 'Swim + Run',
   brick: 'Bike + Run',
 };
 

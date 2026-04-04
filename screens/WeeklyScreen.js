@@ -12,6 +12,8 @@ const DISCIPLINES = {
   rest: '#333',
   strength: '#ff6b6b',
   brick: '#ff9f43',
+  'swim+bike': '#b47fff',
+  'swim+run': '#7fb4ff',
 };
 
 const DOT_OPACITY_DONE = 1;

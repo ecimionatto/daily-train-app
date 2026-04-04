@@ -134,12 +134,12 @@ STRENGTH PERIODIZATION (High-Low stacking): Always same day as hard intervals (s
 // Also injected into the coach system prompt so the AI can explain them.
 // ---------------------------------------------------------------------------
 export const PLAN_RULES = `WEEKLY PLAN RULES (non-negotiable):
-1. DISCIPLINE COUNT: Swim ≥2×/wk (BASE) or ≥3×/wk (BUILD/PEAK). Bike same. Run ≥3×/wk always. swim+bike counts for BOTH swim AND bike. Brick counts for BOTH bike AND run. Exception: TAPER, RACE_WEEK.
+1. DISCIPLINE COUNT (8+ hr/wk): Swim ≥3×/wk, Bike ≥3×/wk, Run ≥3×/wk. swim+bike counts for BOTH swim AND bike. swim+run counts for BOTH swim AND run. Brick counts for BOTH bike AND run. Exception: TAPER, RACE_WEEK, or 5-7 hr/wk athletes.
 2. NO CONSECUTIVE SAME DISCIPLINE: Same discipline back-to-back forbidden, UNLESS weekend AND prior day was brick.
 3. MANDATORY REST WEEK: Every 4th week — 30-40% volume reduction, Z1-Z2 only, no double sessions or intensity.
 4. WEEKLY STRENGTH: ≥1 session/wk on a WEEKDAY (High-Low stacking). NEVER on Sunday or Saturday. Same day as hard intervals (sport AM, strength PM, ≥6–9h apart). Periodized: BASE=max strength (heavy 3-5 reps), BUILD=power/explosive (moderate weight fast), PEAK=maintenance only, TAPER=reduced, RACE_WEEK=none.
 5. SUNDAY = LONG RUN: Sunday is always a long easy aerobic run. Never schedule strength, rest, or double sessions on Sunday.
-6. TWO-A-DAY (swim+bike): AM swim + PM easy bike on same day. Allowed Mon and Wed. Swim may be moderate (Z3 max). Bike MUST be ≤Z2. Never two hard sessions same day.
+6. TWO-A-DAY (swim+bike or swim+run): AM swim + PM easy bike/run on same day. Swim may be moderate (Z3 max). PM session MUST be ≤Z2. Never two hard sessions same day.
 7. DOUBLE-DAY INTENSITY CAP: On two-a-day days, second session is always easy (Z1-Z2). Total daily load ≤150% of a single session.
 8. 1 INTERVAL/DISCIPLINE/WEEK: Each discipline gets exactly 1 quality/threshold session per week. All other sessions of that discipline are Z1-Z2.
 9. PREFERRED DAYS: Configurable via athlete schedulePreferences (weekendPreference, swimDays). Defaults: Sun=long run, Mon+Wed=swim+bike, Tue=run, Thu=strength (BUILD/PEAK) or run, Fri=swim, Sat=brick. If weekendPreference=run-sat-bike-sun: Sun=long bike, Sat=long run. If swimDays=tts: swim on Tue/Thu/Sat instead of Mon/Wed/Fri.`;
@@ -159,9 +159,15 @@ export function buildIdentitySection(coachType) {
 
 /**
  * Returns the skills block — a brief list of what the coach can do at runtime.
- * Injected into the system prompt so the AI knows its own capabilities.
+ * Uses the skill registry (services/skills/registry.js) as the authoritative source.
+ * Falls back to COACH_SKILLS if registry is unavailable.
  */
 export function buildSkillsSection() {
-  const lines = COACH_SKILLS.map((s) => `- ${s.name}: ${s.description}`);
-  return `COACH CAPABILITIES (skills you can invoke based on what the athlete says):\n${lines.join('\n')}`;
+  try {
+    const { buildSkillSummaries } = require('./skills/registry');
+    return `COACH CAPABILITIES (skills you can invoke based on what the athlete says):\n${buildSkillSummaries()}`;
+  } catch {
+    const lines = COACH_SKILLS.map((s) => `- ${s.name}: ${s.description}`);
+    return `COACH CAPABILITIES (skills you can invoke based on what the athlete says):\n${lines.join('\n')}`;
+  }
 }
