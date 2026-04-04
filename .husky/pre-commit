@@ -12,3 +12,10 @@ fi
 
 export PATH="$HOME/.local/share/mise/installs/node/20.19.4/bin:$PATH"
 npx lint-staged
+
+# Run tests — fail the commit if any test breaks
+npx jest --bail 2>&1
+if [ $? -ne 0 ]; then
+  echo "ERROR: Tests failed. Fix failing tests before committing."
+  exit 1
+fi

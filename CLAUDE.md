@@ -206,7 +206,13 @@ When build steps, signing configuration, plugin behavior, or troubleshooting ste
 
 ## Pre-commit
 
-Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js` files. Secret detection blocks hardcoded API keys/tokens.
+Husky pre-commit hook runs three gates in order — all must pass:
+
+1. **Secret detection** — blocks hardcoded API keys/tokens in staged files
+2. **Lint-staged** — ESLint (`--max-warnings=0`) + Prettier on staged `.js` files
+3. **Jest tests** — full test suite (`npx jest --bail`); any failure blocks the commit
+
+This prevents shipping broken code. Never bypass with `--no-verify` unless explicitly asked.
 
 ## Clean Code Principles (Uncle Bob)
 
