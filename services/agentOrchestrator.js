@@ -41,7 +41,8 @@ export async function processMessage(userMessage, context) {
   }
 
   // 5. No tool called → return text response (general coaching conversation)
-  return result.text || null;
+  const text = result.text || null;
+  return text ? sanitizeModelOutput(text) : null;
 }
 
 /**
@@ -118,6 +119,43 @@ function buildAgentSystemPrompt(context) {
   const athleteContext = buildCompactAthleteContext(context);
 
   return `${identity}\n${COACH_CONSTRAINTS}\n${COACH_KNOWLEDGE}\n${athleteContext}`;
+}
+
+/**
+ * Sanitize model text output — strip leaked tokens, code, and raw JSON.
+ *
+ * On-device models sometimes emit ChatML tokens, raw JSON tool calls, or
+ * code blocks instead of natural language. This function catches those
+ * and returns null (triggers fallback) rather than showing garbage to the user.
+ *
+ * @param {string} text - Raw model text output
+ * @returns {string|null} Cleaned text or null if not natural language
+ */
+function sanitizeModelOutput(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  // Strip ChatML tokens
+  let cleaned = text
+    .replace(/<\|im_start\|>[^\n]*/g, '')
+    .replace(/<\|im_end\|>/g, '')
+    .replace(/<\|endoftext\|>/g, '')
+    .trim();
+
+  // Strip code blocks
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, '').trim();
+
+  // Reject if the response is raw JSON (starts with { or [)
+  if (/^\s*[{[]/.test(cleaned)) return null;
+
+  // Reject if it looks like a tool call or schema
+  if (/"type"\s*:\s*"function"/.test(cleaned)) return null;
+  if (/"function"\s*:\s*\{/.test(cleaned)) return null;
+  if (/tool_call/.test(cleaned)) return null;
+
+  // Reject if too short after cleaning (model produced only tokens)
+  if (cleaned.length < 5) return null;
+
+  return cleaned;
 }
 
 /**
