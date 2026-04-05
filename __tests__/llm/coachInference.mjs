@@ -401,6 +401,26 @@ const TEST_CASES = [
     prompt: 'what should I eat before my long ride',
     expectTool: null,
   },
+  // --- STRENGTH TOMORROW should not ask about race date ---
+  {
+    name: 'strength tomorrow \u2192 swap or text, NOT update_plan',
+    prompt: 'I want to do strength training tomorrow',
+    expectTool: null,
+    rejectTool: 'update_plan',
+  },
+  // --- OUTPUT QUALITY (no leaked artifacts) ---
+  {
+    name: 'no backticks in response',
+    prompt: 'how should I train this week',
+    expectTool: null,
+    rejectPatterns: [/```/],
+  },
+  {
+    name: 'no prompt leak in response',
+    prompt: 'give me a quick training tip',
+    expectTool: null,
+    rejectPatterns: [/[Kk]eep it under \d+ words/, /NEVER fabricate/],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -492,17 +512,46 @@ async function main() {
       // --- TEXT TEST ---
       const cleaned = cleanOutput(raw);
       const isNL = isNaturalLanguage(cleaned);
-      const hasTools = parseToolCalls(raw).length > 0;
+      const toolCalls = parseToolCalls(raw);
+      const hasTools = toolCalls.length > 0;
 
-      assert(
-        isNL && !hasTools,
-        `${tc.name} (${elapsed}s)`,
-        !isNL
-          ? `Not NL: "${cleaned.substring(0, 150)}"`
-          : hasTools
-            ? `Unexpected tool call in text response`
+      // Check for rejected tools (wrong intent routing)
+      if (tc.rejectTool) {
+        const wrongTool = toolCalls.find((t) => t.name === tc.rejectTool);
+        assert(
+          !wrongTool,
+          `${tc.name} — no ${tc.rejectTool} (${elapsed}s)`,
+          wrongTool
+            ? `Model called ${tc.rejectTool} (wrong intent). Raw: "${raw.substring(0, 150)}"`
             : null
-      );
+        );
+      }
+
+      // Check for rejected patterns (leaked artifacts)
+      if (tc.rejectPatterns) {
+        for (const pat of tc.rejectPatterns) {
+          assert(
+            !pat.test(cleaned),
+            `${tc.name} — no ${pat.source} (${elapsed}s)`,
+            pat.test(cleaned)
+              ? `Leaked pattern: /${pat.source}/ found in: "${cleaned.substring(0, 150)}"`
+              : null
+          );
+        }
+      }
+
+      // Standard NL check (skip if rejectTool test already covered it)
+      if (!tc.rejectTool || !hasTools) {
+        assert(
+          isNL && !hasTools,
+          `${tc.name} (${elapsed}s)`,
+          !isNL
+            ? `Not NL: "${cleaned.substring(0, 150)}"`
+            : hasTools
+              ? `Unexpected tool call in text response`
+              : null
+        );
+      }
     }
 
     await ctx.dispose();

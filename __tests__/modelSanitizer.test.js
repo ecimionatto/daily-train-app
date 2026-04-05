@@ -106,6 +106,53 @@ describe('sanitizeModelOutput', () => {
     expect(sanitizeModelOutput('console.log("debug output here")')).toBeNull();
   });
 
+  // --- Standalone backtick markers stripped ---
+  it('strips standalone backtick markers from response', () => {
+    const text = '```\nGreat job on your swim today. Recovery looks solid.';
+    const result = sanitizeModelOutput(text);
+    expect(result).toContain('Great job');
+    expect(result).not.toContain('```');
+  });
+
+  it('strips partial backtick markers mixed with text', () => {
+    const text =
+      "```\nSure! Here's your updated plan:\n- Monday: swim\n- Tuesday: bike\n```\nLet me know!";
+    const result = sanitizeModelOutput(text);
+    expect(result).not.toContain('```');
+    expect(result).toContain('Let me know');
+  });
+
+  // --- Leaked prompt instructions stripped ---
+  it('strips "Keep it under N words" from response', () => {
+    const text = 'Your aerobic base is building nicely. Keep it under 80 words.';
+    const result = sanitizeModelOutput(text);
+    expect(result).not.toContain('under 80 words');
+    expect(result).toContain('aerobic base');
+  });
+
+  it('strips "Keep response under N words" variant', () => {
+    const text = 'Tomorrow you will run for 69 minutes. Keep response under 100 words.';
+    const result = sanitizeModelOutput(text);
+    expect(result).not.toContain('under 100 words');
+    expect(result).toContain('69 minutes');
+  });
+
+  it('strips bracketed prompt instructions', () => {
+    const text =
+      'Here is your plan. [Keep it under 80 words and be encouraging.] Focus on recovery.';
+    const result = sanitizeModelOutput(text);
+    expect(result).not.toContain('[');
+    expect(result).toContain('Focus on recovery');
+  });
+
+  it('strips "NEVER fabricate" instruction leak', () => {
+    const text =
+      'Your consistency is at 85%. NEVER fabricate statistics or percentages. Keep training!';
+    const result = sanitizeModelOutput(text);
+    expect(result).not.toContain('NEVER fabricate');
+    expect(result).toContain('85%');
+  });
+
   // --- Edge cases ---
   it('returns null for null input', () => {
     expect(sanitizeModelOutput(null)).toBeNull();

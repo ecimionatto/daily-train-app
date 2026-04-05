@@ -29,11 +29,21 @@ export function sanitizeModelOutput(text) {
     .replace(/<\|end\|>/g, '')
     .trim();
 
-  // Strip code blocks (```...```)
+  // Strip code blocks (```...```) and standalone backtick markers
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '').trim();
+  cleaned = cleaned.replace(/```/g, '').trim();
 
   // Strip markdown headers (# ## ###) — keep the text
   cleaned = cleaned.replace(/^#{1,3}\s+/gm, '').trim();
+
+  // Strip leaked system prompt instructions (model echoing its constraints)
+  // Bracket-enclosed instructions first (before individual patterns break bracket content)
+  cleaned = cleaned
+    .replace(/\[[^\]]*(?:under|below)\s+\d+\s+words[^\]]*\]/g, '')
+    .replace(/\b[Kk]eep\s+(?:response|it)\s+(?:under|below)\s+\d+\s+words\.?/g, '')
+    .replace(/\b[Kk]eep\s+it\s+under\s+\d+\s+words\.?/g, '')
+    .replace(/\bNEVER\s+fabricate\b[^.]*\./g, '')
+    .trim();
 
   // Strip tool_call tags and contents
   cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();

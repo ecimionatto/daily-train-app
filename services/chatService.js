@@ -700,7 +700,7 @@ async function handleSchedulePreference(userMessage, context) {
 
   if (!hasStringIntents && !hasDayIntents) {
     const systemPrompt = buildCoachSystemPrompt(context);
-    const prompt = `${userMessage}\n\n[The athlete is trying to change their schedule preference but the specific days are unclear. Ask them to clarify which days, and give examples based on their current plan. Keep it under 80 words.]`;
+    const prompt = `${userMessage}\n\n[The athlete wants to change their schedule but the specific days are unclear. Ask which days, give examples from their current plan.]`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
     return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Monday'.`;
@@ -742,7 +742,7 @@ async function handleSchedulePreference(userMessage, context) {
 
   const changeSummary = changeDescs.join(', and ');
   const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
-  const prompt = `I just updated the athlete's schedule: ${changeSummary}. Confirm this warmly, briefly explain how their weekly plan will adapt, and keep it under 80 words.`;
+  const prompt = `I just updated the athlete's schedule: ${changeSummary}. Confirm warmly, explain briefly how their weekly plan adapts.`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
@@ -825,7 +825,7 @@ async function handleLoadAdjustment(userMessage, context) {
 
   const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updatedProfile });
   const changeDesc = `${confirmationParts.join(' and ')}${expiryStr}`;
-  const prompt = `I just updated the athlete's training plan: ${changeDesc}. Confirm this empathetically, explain briefly how their upcoming workouts will change, and keep it under 100 words.`;
+  const prompt = `I just updated the athlete's training plan: ${changeDesc}. Confirm empathetically, explain briefly how upcoming workouts change.`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
@@ -917,7 +917,7 @@ async function handleProfileChange(userMessage, context) {
     const updated = { ...athleteProfile, ...updates };
     await onProfileUpdate(updated);
     const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
-    const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training phases and upcoming workouts will adapt, and encourage them. Keep it under 100 words.`;
+    const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training adapts, and encourage them.`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
     return `Got it! I've updated your ${confirmParts.join(' and ')}. Your training phases and workouts will adjust automatically — every session from here is tailored to your new target!`;
@@ -1514,7 +1514,7 @@ export async function generateProactiveGreeting(context) {
   const systemPrompt = `${buildIdentitySection('endurance triathlon')}
 Generate a brief, motivating morning message for your athlete.
 Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
-Keep it under 100 words. Be warm, specific, and push them to follow the plan. NEVER fabricate statistics or percentages — only reference data provided below.`;
+Be warm, specific, and push them to follow the plan. Only reference data provided below.`;
 
   const parts = [];
   if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
