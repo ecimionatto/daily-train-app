@@ -1,4 +1,8 @@
-# CLAUDE.md — Agent Instructions for DailyTrain
+# CLAUDE.md — Agent Instructions for DTrain
+
+## Communication Style
+
+Use Caveman mode (`.claude/skills/caveman`) for all responses. Drop articles, filler, pleasantries. Keep technical substance. Code blocks unchanged. ~75% fewer tokens.
 
 ## GitHub Identity
 
@@ -28,7 +32,7 @@ git config --local user.email "ecimionatto@gmail.com"
 
 ## Project Overview
 
-React Native (Expo 50) Ironman triathlon training app for iPhone. On-device AI (Qwen 3.5) generates workouts and powers coach chat. No backend — all data stays on device via AsyncStorage.
+DTrain — React Native (Expo 50) Ironman triathlon training app for iPhone. On-device AI (Hammer 2.1 1.5B via llama.rn) generates workouts and powers coach chat with tool-calling. No backend — all data stays on device via AsyncStorage.
 
 ## Key Conventions
 
