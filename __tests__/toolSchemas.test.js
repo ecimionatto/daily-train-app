@@ -1,8 +1,8 @@
 const { COACH_TOOLS, TOOL_TO_EXECUTOR } = require('../services/toolSchemas');
 
 describe('COACH_TOOLS', () => {
-  it('contains 5 tool definitions', () => {
-    expect(COACH_TOOLS).toHaveLength(5);
+  it('contains 6 tool definitions', () => {
+    expect(COACH_TOOLS).toHaveLength(6);
   });
 
   it('every tool has required fields', () => {
@@ -22,6 +22,7 @@ describe('COACH_TOOLS', () => {
     expect(toolNames).toContain('adjust_load');
     expect(toolNames).toContain('update_plan');
     expect(toolNames).toContain('analyze_trends');
+    expect(toolNames).toContain('analyze_history');
   });
 
   it('set_schedule has correct parameter types', () => {
@@ -47,5 +48,6 @@ describe('TOOL_TO_EXECUTOR', () => {
     expect(TOOL_TO_EXECUTOR.adjust_load).toBe('adjustLoad');
     expect(TOOL_TO_EXECUTOR.update_plan).toBe('updatePlan');
     expect(TOOL_TO_EXECUTOR.analyze_trends).toBe('trendRecommendation');
+    expect(TOOL_TO_EXECUTOR.analyze_history).toBe('analyzeHistory');
   });
 });

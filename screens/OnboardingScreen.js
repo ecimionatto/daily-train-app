@@ -1,8 +1,18 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../context/AppContext';
-import { computeAndSaveHRProfile } from '../services/healthKit';
+import { computeAndSaveHRProfile, fetchCompletedWorkouts } from '../services/healthKit';
+import { analyzeTrainingHistory, formatHistorySummary } from '../services/historyAnalyzer';
+import { generateWeeklyTargets } from '../services/localModel';
 import {
   EXPERIENCE_OPTIONS,
   getGoalTimesForDistance,
@@ -75,12 +85,16 @@ export default function OnboardingScreen({ onComplete }) {
   const [raceDate, setRaceDate] = useState(new Date());
   const [answers, setAnswers] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
+  const [historyAnalysis, setHistoryAnalysis] = useState(null);
+  const [proposedTargets, setProposedTargets] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const selectedDistance = answers.distance || null;
 
   const questions = useMemo(() => buildQuestions(selectedDistance), [selectedDistance]);
 
-  const totalSteps = 1 + questions.length;
+  // Total steps: date picker + questions + history analysis step
+  const totalSteps = 1 + questions.length + 1;
 
   function handleDateChange(event, date) {
     if (Platform.OS === 'android') setShowDatePicker(false);
@@ -100,11 +114,8 @@ export default function OnboardingScreen({ onComplete }) {
 
     setAnswers(updated);
 
-    if (step < questions.length) {
-      setStep(step + 1);
-    } else {
-      finishOnboarding(updated);
-    }
+    // After last question, go to history analysis step instead of finishing
+    setStep(step + 1);
   }
 
   async function finishOnboarding(finalAnswers) {
@@ -138,8 +149,101 @@ export default function OnboardingScreen({ onComplete }) {
     onComplete();
   }
 
+  const isHistoryStep = step === questions.length + 1;
+
+  const analyzeHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const workouts = await fetchCompletedWorkouts(30);
+      if (workouts && workouts.length > 0) {
+        const analysis = analyzeTrainingHistory(workouts, 30);
+        setHistoryAnalysis(analysis);
+        const phase = 'BASE';
+        const tempProfile = { weeklyHours: answers.weeklyHours || '8-10' };
+        const targets = generateWeeklyTargets(phase, tempProfile, analysis);
+        setProposedTargets(targets);
+      }
+    } catch {
+      // No history available — use defaults
+    }
+    setLoadingHistory(false);
+  }, [answers.weeklyHours]);
+
+  useEffect(() => {
+    if (isHistoryStep) analyzeHistory();
+  }, [isHistoryStep, analyzeHistory]);
+
   function handleDateNext() {
     setStep(1);
+  }
+
+  // History analysis step (after all questions)
+  if (isHistoryStep) {
+    const hasData = historyAnalysis && !loadingHistory;
+    const noData = !historyAnalysis && !loadingHistory;
+
+    return (
+      <View style={styles.container}>
+        <Text style={styles.stepLabel}>
+          STEP {totalSteps} OF {totalSteps}
+        </Text>
+
+        <View style={styles.progressBar}>
+          <View style={[styles.progressFill, { width: '100%' }]} />
+        </View>
+
+        <Text style={styles.title}>Training History</Text>
+
+        {loadingHistory && (
+          <View style={styles.historyLoading}>
+            <ActivityIndicator size="large" color="#e8ff47" />
+            <Text style={styles.historyLoadingText}>Reading your training history...</Text>
+          </View>
+        )}
+
+        {hasData && (
+          <View style={styles.historyCard}>
+            <Text style={styles.historySummary}>{formatHistorySummary(historyAnalysis)}</Text>
+
+            {proposedTargets?.targets && (
+              <View style={styles.targetsPreview}>
+                <Text style={styles.targetsTitle}>PROPOSED WEEKLY TARGETS</Text>
+                {Object.entries(proposedTargets.targets).map(([disc, data]) => (
+                  <View key={disc} style={styles.targetRow}>
+                    <Text style={styles.targetDisc}>
+                      {disc.charAt(0).toUpperCase() + disc.slice(1)}
+                    </Text>
+                    <Text style={styles.targetValue}>
+                      {data.count}x/week · {data.totalMinutes}min
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.nextButton} onPress={() => finishOnboarding(answers)}>
+              <Text style={styles.nextButtonText}>CONFIRM & START</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {noData && (
+          <View style={styles.historyCard}>
+            <Text style={styles.historySummary}>
+              No training history found. We will start with default targets based on your weekly
+              hours and adapt as you train.
+            </Text>
+            <TouchableOpacity style={styles.nextButton} onPress={() => finishOnboarding(answers)}>
+              <Text style={styles.nextButtonText}>GET STARTED</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.backButton} onPress={() => setStep(step - 1)}>
+          <Text style={styles.backButtonText}>BACK</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   // Date picker step
@@ -322,5 +426,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  historyLoading: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  historyLoadingText: {
+    color: '#888',
+    fontSize: 16,
+    marginTop: 16,
+  },
+  historyCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 24,
+  },
+  historySummary: {
+    color: '#ccc',
+    fontSize: 15,
+    lineHeight: 24,
+    marginBottom: 16,
+  },
+  targetsPreview: {
+    marginBottom: 20,
+  },
+  targetsTitle: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  targetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a3e',
+  },
+  targetDisc: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  targetValue: {
+    color: '#e8ff47',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

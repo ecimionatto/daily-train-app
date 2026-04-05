@@ -154,6 +154,23 @@ export const COACH_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_history',
+      description:
+        'Analyze 30 days of Apple Health data and propose an adaptive training plan. Call on first use, plan reset, or when athlete asks to review/create their plan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          confirmProposal: {
+            type: 'boolean',
+            description: 'True if athlete confirmed the proposed plan',
+          },
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -165,4 +182,5 @@ export const TOOL_TO_EXECUTOR = {
   adjust_load: 'adjustLoad',
   update_plan: 'updatePlan',
   analyze_trends: 'trendRecommendation',
+  analyze_history: 'analyzeHistory',
 };

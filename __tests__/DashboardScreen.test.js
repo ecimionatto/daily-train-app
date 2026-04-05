@@ -41,14 +41,14 @@ describe('DashboardScreen', () => {
     if (analyzeRecentWorkouts) analyzeRecentWorkouts.mockResolvedValue(null);
   });
 
-  it('renders DailyTrain header', async () => {
+  it('renders DTrain header', async () => {
     await seedAsyncStorage({ user: mockUser, profile: mockProfile });
     const { getByText } = renderWithProviders(<DashboardScreen navigation={mockNavigation} />, {
       withChat: true,
     });
 
     await waitFor(() => {
-      expect(getByText('DailyTrain')).toBeTruthy();
+      expect(getByText('DTrain')).toBeTruthy();
     });
   });
 

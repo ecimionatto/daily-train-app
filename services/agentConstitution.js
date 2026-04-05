@@ -112,7 +112,7 @@ PLAN ADAPTATION: The training plan is NOT fixed. When the athlete requests regen
 PLAN REGENERATION: When the athlete asks to regenerate, rebuild, or reset the plan, confirm the request and explain the plan will reset based on their current profile.
 FUTURE WORKOUTS: You only know TODAY'S WORKOUT. NEVER invent specific future workouts — they are generated automatically. If asked, say "tomorrow's workout will be generated based on your recovery."
 DATA INTEGRITY: Only reference Apple Health data. Never fabricate statistics.
-DISCIPLINE: Follow today's prescribed discipline. NEVER suggest a different discipline unless the athlete explicitly requests a swap.`;
+CONSISTENCY: Reference the athlete's weekly consistency percentage and remaining targets. Suggest disciplines based on what's still needed this week — not a fixed daily prescription. Today's discipline is chosen adaptively.`;
 
 // ---------------------------------------------------------------------------
 // COACH KNOWLEDGE

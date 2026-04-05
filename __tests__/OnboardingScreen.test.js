@@ -5,6 +5,17 @@ import OnboardingScreen from '../screens/OnboardingScreen';
 import { clearAsyncStorage, seedAsyncStorage, mockUser, renderWithProviders } from './test-utils';
 
 jest.mock('../services/healthKit');
+jest.mock('../services/localModel', () => ({
+  ...jest.requireActual('../services/localModel'),
+  generateWeeklyTargets: jest.fn().mockReturnValue({
+    targets: {
+      swim: { count: 3, totalMinutes: 150 },
+      bike: { count: 3, totalMinutes: 225 },
+      run: { count: 3, totalMinutes: 165 },
+      strength: { count: 1, totalMinutes: 40 },
+    },
+  }),
+}));
 
 describe('OnboardingScreen', () => {
   const mockOnComplete = jest.fn();
@@ -80,6 +91,10 @@ describe('OnboardingScreen', () => {
     // Step 10: goalTime
     fireEvent.press(getByText('5:30-6:30'));
 
+    // Step 11: history analysis (no data path)
+    await waitFor(() => getByText('Training History'));
+    fireEvent.press(getByText('GET STARTED'));
+
     await waitFor(() => {
       expect(mockOnComplete).toHaveBeenCalledTimes(1);
     });
@@ -109,6 +124,10 @@ describe('OnboardingScreen', () => {
     fireEvent.press(getByText('None'));
     await waitFor(() => getByText('Sub 2:00'));
     fireEvent.press(getByText('Sub 2:00'));
+
+    // History analysis step (no data path)
+    await waitFor(() => getByText('Training History'));
+    fireEvent.press(getByText('GET STARTED'));
 
     await waitFor(async () => {
       const stored = await AsyncStorage.getItem('athleteProfile');

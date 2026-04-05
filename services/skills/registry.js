@@ -111,6 +111,26 @@ Valid params: restDays, longDays, avoidDays, strengthDays (arrays of day indices
 - Apply approved changes to schedule preferences
 - Clear today's workout cache for regeneration`,
   },
+  {
+    name: 'analyze_history',
+    description:
+      'Analyze 30 days of Apple Health data and propose an adaptive training plan. Use when athlete asks to review their training, create a new plan, or says "analyze my training".',
+    triggers: ['plan_creation', 'history_review'],
+    confirmationRequired: true,
+    executor: 'analyzeHistory',
+    instructions: `## Workflow: History Analysis & Plan Proposal
+### Step 1: Fetch & Analyze (deterministic)
+- Read 30 days of completed workouts from Apple Health
+- Compute: avg sessions/wk, discipline distribution, consistency trend, gaps
+
+### Step 2: Propose Targets
+- Generate weekly targets from volume tier + phase + history
+- AI narrates the proposal in 3-4 sentences
+
+### Step 3: Preview → Confirm
+- Show proposal diff with narration
+- Athlete confirms → save targets to profile`,
+  },
 ];
 
 /**

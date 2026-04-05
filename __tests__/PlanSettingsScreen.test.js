@@ -56,13 +56,14 @@ describe('PlanSettingsScreen', () => {
     });
   });
 
-  it('shows weekly discipline plan', async () => {
+  it('shows weekly targets and suggested schedule', async () => {
     const { getByText } = renderWithProviders(
       <PlanSettingsScreen navigation={mockNavigation} route={mockRoute} />
     );
 
     await waitFor(() => {
-      expect(getByText("This Week's Discipline Plan")).toBeTruthy();
+      expect(getByText('Weekly Session Targets')).toBeTruthy();
+      expect(getByText('Suggested Schedule')).toBeTruthy();
       expect(getByText('Monday')).toBeTruthy();
       expect(getByText('Sunday')).toBeTruthy();
     });

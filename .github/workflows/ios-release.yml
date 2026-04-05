@@ -2,69 +2,103 @@ name: iOS Release
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      lane:
-        description: 'Fastlane lane to run'
-        required: true
-        default: 'beta'
-        type: choice
-        options:
-          - beta
-          - release
+    branches: [main]
 
 jobs:
-  build-and-release:
-    runs-on: macos-latest
-    timeout-minutes: 60
-
+  test:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx jest --bail
+      - run: npx eslint .
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  build-and-submit:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install JS dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-          working-directory: ios
+      - name: Bump build number
+        run: |
+          BUILD_NUM="$(date +%Y%m%d).${{ github.run_number }}"
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json'));
+            app.expo.ios.buildNumber = '$BUILD_NUM';
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+          echo "BUILD_NUMBER=$BUILD_NUM" >> $GITHUB_ENV
 
-      - name: Prebuild (Expo → native iOS)
+      - name: Prebuild
         run: LANG=en_US.UTF-8 npx expo prebuild --platform ios --clean
 
-      - name: Patch ExpoAppleAuthentication
-        # Add @unknown default to switch statements so Swift compiles cleanly
+      - name: Patch Swift compatibility
         run: |
           FILE="node_modules/expo-apple-authentication/ios/AppleAuthenticationUtils.swift"
           if [ -f "$FILE" ]; then
-            # Insert @unknown default before closing braces of switch blocks missing it
             sed -i '' '/^        }$/!b; /^        @unknown default/!{ /^        default/!{ s/^        }$/        @unknown default:\n            break\n        }/; }' "$FILE" || true
           fi
 
-      - name: Install CocoaPods
+      - name: Pod install
         run: cd ios && pod install
 
-      - name: Build & upload
+      - name: Install signing certificate
         env:
-          APPLE_ID:             ${{ secrets.APPLE_ID }}
-          ITC_TEAM_ID:          ${{ secrets.ITC_TEAM_ID }}
-          ASC_KEY_ID:           ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID:        ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT:      ${{ secrets.ASC_KEY_CONTENT }}
-          MATCH_PASSWORD:       ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL:        ${{ secrets.MATCH_GIT_URL }}
-          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
         run: |
-          LANE="${{ github.event.inputs.lane || 'beta' }}"
-          cd ios && bundle exec fastlane $LANE
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          echo "$CERTIFICATE_P12" | base64 -d > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/dtrain.mobileprovision
+
+      - name: Build archive
+        run: |
+          xcodebuild \
+            -workspace ios/DTrain.xcworkspace -scheme DTrain \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/DTrain.xcarchive \
+            DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates archive
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/DTrain.xcarchive \
+            -exportPath build/AppStore \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates
+
+      - name: Upload to App Store Connect
+        run: |
+          xcrun altool --upload-app \
+            -f build/AppStore/DTrain.ipa -t ios \
+            --apiKey ${{ secrets.ASC_KEY_ID }} \
+            --apiIssuer ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Summary
+        run: |
+          echo "### iOS Release" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: ${{ env.BUILD_NUMBER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Uploaded to App Store Connect" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

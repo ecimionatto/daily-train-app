@@ -32,7 +32,9 @@ export default function DashboardScreen({ navigation }) {
     loadHealthData,
     phase,
     daysToRace,
-    weekPlan,
+    weeklyTargets,
+    weeklyConsistency,
+    getTodayDiscipline,
     alternativeWorkout,
     saveAlternativeWorkout,
     recentScore,
@@ -79,8 +81,8 @@ export default function DashboardScreen({ navigation }) {
   async function fetchWorkout() {
     setLoading(true);
     try {
-      const todayDay = new Date().getDay();
-      const targetDiscipline = weekPlan[todayDay];
+      // Adaptive discipline: picks based on remaining weekly targets + readiness
+      const targetDiscipline = getTodayDiscipline();
       const params = {
         profile: athleteProfile,
         healthData,
@@ -91,10 +93,7 @@ export default function DashboardScreen({ navigation }) {
         trends,
         targetDiscipline,
       };
-      let workout = await generateWorkoutLocally(params);
-      if (targetDiscipline && workout.discipline !== targetDiscipline) {
-        workout = { ...workout, discipline: targetDiscipline };
-      }
+      const workout = await generateWorkoutLocally(params);
       await saveTodayWorkout(workout);
 
       if (workout.discipline !== 'rest' || (readinessScore || 65) >= 55) {
@@ -206,7 +205,7 @@ export default function DashboardScreen({ navigation }) {
       }
     >
       <View style={styles.header}>
-        <Text style={styles.greeting}>DailyTrain</Text>
+        <Text style={styles.greeting}>DTrain</Text>
         <Text style={styles.phaseLabel}>{phaseLabels[phase] || phase}</Text>
       </View>
 
@@ -262,6 +261,64 @@ export default function DashboardScreen({ navigation }) {
               <Text style={styles.metricValue}>{healthData?.sleepHours?.toFixed(1) ?? '--'}</Text>
               <Text style={styles.metricLabel}>SLEEP</Text>
             </View>
+          </View>
+        </View>
+      )}
+
+      {/* Weekly Consistency */}
+      {weeklyConsistency && weeklyTargets && (
+        <View style={styles.consistencyCard}>
+          <Text style={styles.sectionTitle}>WEEKLY CONSISTENCY</Text>
+          <View style={styles.consistencyRow}>
+            <Text
+              style={[
+                styles.consistencyPct,
+                { color: getConsistencyColor(weeklyConsistency.percentage) },
+              ]}
+            >
+              {weeklyConsistency.percentage}%
+            </Text>
+            <View style={styles.consistencyInfo}>
+              <Text style={styles.consistencyLabel}>
+                {weeklyConsistency.keyWorkoutsHit}/{weeklyConsistency.totalKeyWorkouts} sessions
+              </Text>
+              <Text style={styles.consistencyHint}>
+                {weeklyConsistency.percentage >= 85
+                  ? 'On track — great consistency!'
+                  : weeklyConsistency.percentage >= 70
+                    ? 'Good progress — keep it up'
+                    : 'Room to improve — prioritize key sessions'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.disciplineTargets}>
+            {Object.entries(weeklyConsistency.byDiscipline).map(([disc, data]) => (
+              <View key={disc} style={styles.disciplineTargetRow}>
+                <View
+                  style={[
+                    styles.disciplineTargetDot,
+                    { backgroundColor: getDisciplineColor(disc) },
+                  ]}
+                />
+                <Text style={styles.disciplineTargetLabel}>
+                  {disc.charAt(0).toUpperCase() + disc.slice(1)}
+                </Text>
+                <Text style={styles.disciplineTargetCount}>
+                  {data.completed}/{data.target}
+                </Text>
+                <View style={styles.disciplineTargetBarBg}>
+                  <View
+                    style={[
+                      styles.disciplineTargetBar,
+                      {
+                        width: `${Math.min(data.pct, 100)}%`,
+                        backgroundColor: getDisciplineColor(disc),
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            ))}
           </View>
         </View>
       )}
@@ -589,6 +646,12 @@ function getRaceReadinessLabel(score, phase, daysToRace) {
   if (score >= 65) return 'BUILDING';
   if (score >= 45) return 'NEEDS FOCUS';
   return 'BEHIND TARGET';
+}
+
+function getConsistencyColor(pct) {
+  if (pct >= 85) return '#47ffb2';
+  if (pct >= 70) return '#e8ff47';
+  return '#ff6b6b';
 }
 
 function getScoreColor(score) {
@@ -1162,5 +1225,73 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 8,
     fontStyle: 'italic',
+  },
+  consistencyCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#47ffb2',
+  },
+  consistencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  consistencyPct: {
+    fontSize: 42,
+    fontWeight: '900',
+    marginRight: 16,
+  },
+  consistencyInfo: {
+    flex: 1,
+  },
+  consistencyLabel: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  consistencyHint: {
+    color: '#888',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  disciplineTargets: {
+    gap: 8,
+  },
+  disciplineTargetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  disciplineTargetDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  disciplineTargetLabel: {
+    color: '#ccc',
+    fontSize: 13,
+    fontWeight: '600',
+    width: 70,
+  },
+  disciplineTargetCount: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '600',
+    width: 30,
+    textAlign: 'center',
+  },
+  disciplineTargetBarBg: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#2a2a3e',
+    borderRadius: 3,
+    marginLeft: 8,
+  },
+  disciplineTargetBar: {
+    height: '100%',
+    borderRadius: 3,
   },
 });

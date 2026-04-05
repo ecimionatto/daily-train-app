@@ -6,8 +6,8 @@ const {
 } = require('../../services/skills/registry');
 
 describe('SKILL_REGISTRY', () => {
-  it('contains all 6 skills', () => {
-    expect(SKILL_REGISTRY).toHaveLength(6);
+  it('contains all 7 skills', () => {
+    expect(SKILL_REGISTRY).toHaveLength(7);
     const names = SKILL_REGISTRY.map((s) => s.name);
     expect(names).toContain('set_schedule');
     expect(names).toContain('swap_workout');
@@ -15,6 +15,7 @@ describe('SKILL_REGISTRY', () => {
     expect(names).toContain('update_training_plan');
     expect(names).toContain('read_health_data');
     expect(names).toContain('trend_recommendation');
+    expect(names).toContain('analyze_history');
   });
 
   it('every skill has required fields', () => {
@@ -28,12 +29,13 @@ describe('SKILL_REGISTRY', () => {
     }
   });
 
-  it('set_schedule and trend_recommendation require confirmation', () => {
+  it('set_schedule, trend_recommendation, and analyze_history require confirmation', () => {
     const confirming = SKILL_REGISTRY.filter((s) => s.confirmationRequired);
-    expect(confirming).toHaveLength(2);
+    expect(confirming).toHaveLength(3);
     const names = confirming.map((s) => s.name);
     expect(names).toContain('set_schedule');
     expect(names).toContain('trend_recommendation');
+    expect(names).toContain('analyze_history');
   });
 });
 
@@ -50,7 +52,7 @@ describe('buildSkillSummaries', () => {
   it('returns one line per skill', () => {
     const summaries = buildSkillSummaries();
     const lines = summaries.split('\n');
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(7);
   });
 });
 

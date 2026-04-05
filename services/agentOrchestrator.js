@@ -141,7 +141,15 @@ function buildCompactAthleteContext(context) {
   if (todayWorkout) {
     parts.push(`Today: ${todayWorkout.discipline} - ${todayWorkout.title || 'workout'}`);
   }
-  if (weekPlan) {
+  if (context.weeklyTargets?.targets) {
+    const t = context.weeklyTargets.targets;
+    const c = context.weeklyConsistency?.byDiscipline || {};
+    const targetStr = Object.entries(t)
+      .map(([d, v]) => `${d[0].toUpperCase()}=${c[d]?.completed || 0}/${v.count}`)
+      .join(' ');
+    const pct = context.weeklyConsistency?.percentage ?? '?';
+    parts.push(`Targets: ${targetStr} | ${pct}% consistency`);
+  } else if (weekPlan) {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const planStr = weekPlan.map((d, i) => `${days[i]}=${d}`).join(' ');
     parts.push(`Week: ${planStr}`);

@@ -15,6 +15,7 @@ const EXECUTORS = {
   updatePlan: () => require('./updatePlan'),
   readHealth: () => require('./readHealth'),
   trendRecommendation: () => require('./trendRecommendation'),
+  analyzeHistory: () => require('./analyzeHistory'),
 };
 
 /**

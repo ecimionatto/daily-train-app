@@ -3,7 +3,9 @@ name: publish-to-appstore
 description: Build and publish DailyTrain to the App Store. Use this skill whenever the user asks to publish, submit, release, or upload the app to the App Store, App Store Connect, or TestFlight. Also use it when the user says "send to Apple", "release the app", or "submit for review".
 ---
 
-# Publish DailyTrain to the App Store
+# Publish DTrain to the App Store
+
+> **Auto-deploy:** Merging to `main` triggers the CI pipeline (`.github/workflows/ios-release.yml`) that builds and submits to App Store Connect automatically. Use this manual flow only for hotfixes or when CI is down.
 
 End-to-end workflow: test → version bump → prebuild → archive → export → upload.
 
