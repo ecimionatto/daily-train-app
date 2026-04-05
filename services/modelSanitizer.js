@@ -32,6 +32,9 @@ export function sanitizeModelOutput(text) {
   // Strip code blocks (```...```)
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '').trim();
 
+  // Strip markdown headers (# ## ###) — keep the text
+  cleaned = cleaned.replace(/^#{1,3}\s+/gm, '').trim();
+
   // Strip tool_call tags and contents
   cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
 

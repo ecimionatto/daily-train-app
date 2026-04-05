@@ -191,4 +191,204 @@ describe('agentSmoke — conversational flow', () => {
     expect(result).toBeNull();
     expect(executeSkillPreview).not.toHaveBeenCalled();
   });
+
+  // --- Plan change scenarios ---
+
+  it('routes "change my race date" to update_plan tool', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [
+        {
+          function: {
+            name: 'update_plan',
+            arguments: { raceDate: '2026-11-01', reason: 'race moved' },
+          },
+        },
+      ],
+    });
+    executeSkillPreview.mockResolvedValue({
+      diff: { table: 'Race date: Sep 13 → Nov 1', summary: 'Extends build phase by 7 weeks.' },
+      updatedProfile: { ...mockContext.athleteProfile, raceDate: '2026-11-01' },
+      executor: 'updatePlan',
+    });
+
+    const result = await processMessage('change my race date to November 1st', mockContext);
+
+    expect(executeSkillPreview).toHaveBeenCalledWith(
+      'updatePlan',
+      expect.any(String),
+      expect.objectContaining({ extractedArgs: { raceDate: '2026-11-01', reason: 'race moved' } })
+    );
+    expect(result.pendingAction).toBeDefined();
+    expect(result.pendingAction.executor).toBe('updatePlan');
+  });
+
+  it('routes "switch to Olympic distance" to update_plan tool', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [
+        {
+          function: {
+            name: 'update_plan',
+            arguments: { distance: 'Olympic Triathlon' },
+          },
+        },
+      ],
+    });
+    executeSkillPreview.mockResolvedValue({
+      diff: { table: 'Distance: 70.3 → Olympic', summary: 'Volume targets reduced.' },
+      updatedProfile: { ...mockContext.athleteProfile, distance: 'Olympic Triathlon' },
+      executor: 'updatePlan',
+    });
+
+    const result = await processMessage('switch to Olympic distance', mockContext);
+
+    expect(result.pendingAction.executor).toBe('updatePlan');
+    expect(result.text).toContain('Olympic');
+  });
+
+  it('routes "move my swim days to Tuesday Thursday" to set_schedule tool', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [
+        {
+          function: {
+            name: 'set_schedule',
+            arguments: { swimDays: 'tts' },
+          },
+        },
+      ],
+    });
+    executeSkillPreview.mockResolvedValue({
+      diff: { table: 'Swim days: MWF → TTS', summary: 'Updated swim schedule.' },
+      updatedProfile: {
+        ...mockContext.athleteProfile,
+        schedulePreferences: { ...mockContext.athleteProfile.schedulePreferences, swimDays: 'tts' },
+      },
+      executor: 'setSchedule',
+    });
+
+    const result = await processMessage(
+      'move my swim days to Tuesday Thursday Saturday',
+      mockContext
+    );
+
+    expect(executeSkillPreview).toHaveBeenCalledWith(
+      'setSchedule',
+      expect.any(String),
+      expect.objectContaining({ extractedArgs: { swimDays: 'tts' } })
+    );
+    expect(result.pendingAction).toBeDefined();
+  });
+
+  // --- Training questions ---
+
+  it('answers "what phase am I in" with coaching text', async () => {
+    runToolInference.mockResolvedValue({
+      text: 'You are in BUILD phase, 23 weeks out. Focus on threshold work alongside your base volume.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('what phase am I in?', mockContext);
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('BUILD');
+    expect(executeSkillPreview).not.toHaveBeenCalled();
+  });
+
+  it('answers "how should I train this week" with coaching text', async () => {
+    runToolInference.mockResolvedValue({
+      text: 'This week: 3 swim, 2 bike, 3 run. Prioritize your long ride Saturday and brick Sunday.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('how should I train this week?', mockContext);
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('swim');
+    expect(executeSkillPreview).not.toHaveBeenCalled();
+  });
+
+  // --- Fatigue and recovery ---
+
+  it('routes "I am exhausted, reduce my training" to adjust_load tool', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [
+        {
+          function: {
+            name: 'adjust_load',
+            arguments: { adjustment: 'reduce', days: 3, reason: 'fatigue' },
+          },
+        },
+      ],
+    });
+    executeSkillPreview.mockResolvedValue({
+      diff: { table: 'Load: normal → reduced for 3 days', summary: 'Taking it easy.' },
+      updatedProfile: mockContext.athleteProfile,
+      executor: 'adjustLoad',
+    });
+
+    const result = await processMessage(
+      'I am exhausted, reduce my training for a few days',
+      mockContext
+    );
+
+    expect(executeSkillPreview).toHaveBeenCalledWith(
+      'adjustLoad',
+      expect.any(String),
+      expect.objectContaining({
+        extractedArgs: { adjustment: 'reduce', days: 3, reason: 'fatigue' },
+      })
+    );
+    expect(result.pendingAction.executor).toBe('adjustLoad');
+  });
+
+  it('answers "my legs are sore, should I rest" with coaching text', async () => {
+    runToolInference.mockResolvedValue({
+      text: 'With sore legs and readiness at 72, an easy swim or light spin would help recovery better than full rest.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('my legs are sore, should I rest today?', mockContext);
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('recovery');
+    expect(executeSkillPreview).not.toHaveBeenCalled();
+  });
+
+  it('answers "how is my recovery looking" with coaching text', async () => {
+    runToolInference.mockResolvedValue({
+      text: 'Recovery looks solid. HRV at 48ms is stable, RHR at 52 is normal. Sleep 7.2h is good. Green light for today.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('how is my recovery looking?', mockContext);
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('HRV');
+    expect(executeSkillPreview).not.toHaveBeenCalled();
+  });
+
+  // --- Rejection flow ---
+
+  it('rejects pending action on "no" and clears pending', async () => {
+    const pendingAction = {
+      executor: 'updatePlan',
+      updatedProfile: { raceDate: '2026-11-01' },
+      diff: { table: 'Race date change', summary: 'Extended plan.' },
+    };
+    classifyConfirmation.mockReturnValue('no');
+
+    const result = await processMessage('no, keep the current plan', {
+      ...mockContext,
+      pendingAction,
+    });
+
+    expect(commitSkill).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      text: expect.any(String),
+      clearPending: true,
+    });
+  });
 });
