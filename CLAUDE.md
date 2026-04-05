@@ -246,10 +246,26 @@ This prevents shipping broken code. Never bypass with `--no-verify` unless expli
 - **Mock at boundaries**: Mock services (auth, healthKit, localModel, chatService), never mock React hooks or internal state
 - Run `npm test` and `npm run test:coverage` before every commit
 
+## Local Environment (mise)
+
+[mise](https://mise.jdx.dev/) manages Node.js and Ruby versions. Config in `.mise.toml`.
+
+```bash
+mise install          # Install pinned Node 20.19.4 + Ruby 3.2
+mise run test         # Jest tests
+mise run lint         # ESLint
+mise run check        # lint + test together
+mise run build:device # Release build to iPhone
+mise run test:llm     # Real LLM inference tests
+```
+
+All tasks defined in `.mise.toml`. Use `mise run <task>` or `npm run <script>` — both work.
+
 ## Commands
 
 - `npm start` — Expo dev server
 - `npm test` — Jest tests
 - `npm run test:coverage` — Jest with coverage report (must pass ≥60% threshold)
+- `npm run test:llm` — Real LLM inference tests (downloads model, ~5min)
 - `npm run lint` — ESLint check
 - `npm run format` — Prettier format
