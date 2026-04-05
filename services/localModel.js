@@ -15,6 +15,7 @@
 import RNFS from 'react-native-fs';
 import { initLlama } from 'llama.rn';
 import { isRunningOnly, getDisciplinesForProfile } from './raceConfig';
+import { WEEKLY_TARGETS, SESSION_DURATIONS, PHASE_CONFIG } from './trainingHeuristics';
 
 const MODEL_FILENAME = 'Hammer2.1-1.5b-Q4_K_M.gguf';
 const MODEL_URL =
@@ -1635,4 +1636,125 @@ export async function analyzeRecentWorkouts(recentDays, healthData) {
   const totalSessions = recentDays.reduce((sum, d) => sum + d.workouts.length, 0);
   if (totalSessions === 0) return 'No recent sessions recorded.';
   return `You completed ${totalSessions} session${totalSessions > 1 ? 's' : ''} recently across ${disciplines.join(', ')}. Keep the consistency going — recovery and sleep are key between sessions.`;
+}
+
+// ---------------------------------------------------------------------------
+// Weekly Targets & Adaptive Discipline Selection (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the Monday (start of ISO week) for a given date.
+ * @param {Date} date
+ * @returns {Date} Monday at 00:00:00
+ */
+function getMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Generate weekly session targets based on volume tier, phase, and history.
+ * Returns a target object with per-discipline counts and total minutes.
+ *
+ * @param {string} phase - Training phase (BASE, BUILD, PEAK, TAPER, RACE_WEEK)
+ * @param {Object} profile - Athlete profile with weeklyHours and schedulePreferences
+ * @param {Object|null} trainingHistory - Output of analyzeTrainingHistory (unused for now)
+ * @returns {{ weekStartDate: string, targets: Object, phase: string, totalSessions: number, suggestedSchedule: string[], isDeloadWeek: boolean, consistency: null }}
+ */
+export function generateWeeklyTargets(phase, profile, _trainingHistory = null) {
+  const tier = profile?.weeklyHours || '8-10';
+  const targets = WEEKLY_TARGETS[tier] || WEEKLY_TARGETS['8-10'];
+  const phaseConfig = PHASE_CONFIG[phase] || PHASE_CONFIG['BASE'];
+
+  const weeklyTargets = {
+    weekStartDate: getMonday(new Date()).toISOString().split('T')[0],
+    targets: {
+      swim: {
+        count: targets.swim,
+        totalMinutes: Math.round(
+          targets.swim * (SESSION_DURATIONS[tier]?.swim || 50) * phaseConfig.volumeMult
+        ),
+      },
+      bike: {
+        count: targets.bike,
+        totalMinutes: Math.round(
+          targets.bike * (SESSION_DURATIONS[tier]?.bike || 70) * phaseConfig.volumeMult
+        ),
+      },
+      run: {
+        count: targets.run,
+        totalMinutes: Math.round(
+          targets.run * (SESSION_DURATIONS[tier]?.run || 55) * phaseConfig.volumeMult
+        ),
+      },
+      strength: {
+        count: targets.strength,
+        totalMinutes: targets.strength * (SESSION_DURATIONS[tier]?.strength || 40),
+      },
+    },
+    phase,
+    totalSessions: targets.swim + targets.bike + targets.run + targets.strength,
+    suggestedSchedule: getWeeklyDisciplinePlan(phase, profile),
+    isDeloadWeek: false,
+    consistency: null,
+  };
+
+  return weeklyTargets;
+}
+
+/**
+ * Pick today's discipline based on weekly targets, completions, and readiness.
+ *
+ * Priority: (1) rest if readiness < 40, (2) rest if all targets met,
+ * (3) suggested schedule discipline if it still has gaps,
+ * (4) most-urgent (largest gap) discipline.
+ *
+ * @param {Object} weeklyTargets - Output of generateWeeklyTargets
+ * @param {Array} completedThisWeek - Completed workout objects with { discipline }
+ * @param {number} dayOfWeek - 0=Sun, 1=Mon ... 6=Sat
+ * @param {Object} healthData - Optional, with readinessScore
+ * @returns {string} Discipline name or 'rest'
+ */
+export function selectTodaysDiscipline(
+  weeklyTargets,
+  completedThisWeek,
+  dayOfWeek,
+  healthData = {}
+) {
+  if (!weeklyTargets?.targets) return 'rest';
+
+  const { targets } = weeklyTargets;
+  const readiness = healthData?.readinessScore || 70;
+
+  if (readiness < 40) return 'rest';
+
+  // Count completed per discipline this week
+  const completed = { swim: 0, bike: 0, run: 0, strength: 0 };
+  (completedThisWeek || []).forEach((w) => {
+    if (completed[w.discipline] !== undefined) completed[w.discipline]++;
+  });
+
+  // Find disciplines still needing sessions (gap = target - completed)
+  const gaps = Object.entries(targets)
+    .filter(([disc]) => disc !== 'strength' || (dayOfWeek >= 1 && dayOfWeek <= 5))
+    .map(([disc, t]) => ({ discipline: disc, gap: t.count - (completed[disc] || 0) }))
+    .filter((g) => g.gap > 0)
+    .sort((a, b) => b.gap - a.gap);
+
+  if (gaps.length === 0) return 'rest';
+
+  // Check suggested schedule as hint
+  const suggested = weeklyTargets.suggestedSchedule?.[dayOfWeek];
+  const suggestedDisc = suggested?.split('+')[0];
+
+  // Prefer suggested if it still has gaps
+  if (suggestedDisc && gaps.find((g) => g.discipline === suggestedDisc)) {
+    return suggested;
+  }
+
+  return gaps[0].discipline;
 }

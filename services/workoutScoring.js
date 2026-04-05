@@ -3,6 +3,8 @@
  * Pure functions — no AsyncStorage, no side effects.
  */
 
+// CONSISTENCY_THRESHOLDS available from ./trainingHeuristics when needed
+
 /**
  * Calculate completion score for a completed workout.
  * Returns 0-100 or null if no valid data.
@@ -284,6 +286,51 @@ export function analyzeDisciplineGaps(completedWorkouts, requiredDisciplines, da
   });
 
   return { counts, gaps, underTrained };
+}
+
+/**
+ * Score weekly consistency: how well completions match weekly targets.
+ * Compares completed sessions per discipline against target counts.
+ * Over-completion is capped at 100% per discipline.
+ *
+ * @param {Object} weeklyTargets - Output of generateWeeklyTargets
+ * @param {Array} completedThisWeek - Completed workout objects with { discipline }
+ * @returns {{ percentage: number, byDiscipline: Object, keyWorkoutsHit: number, totalKeyWorkouts: number }}
+ */
+export function calculateWeeklyConsistencyScore(weeklyTargets, completedThisWeek) {
+  if (!weeklyTargets?.targets) {
+    return { percentage: 0, byDiscipline: {}, keyWorkoutsHit: 0, totalKeyWorkouts: 0 };
+  }
+
+  const { targets } = weeklyTargets;
+  const completed = { swim: 0, bike: 0, run: 0, strength: 0 };
+  (completedThisWeek || []).forEach((w) => {
+    if (completed[w.discipline] !== undefined) completed[w.discipline]++;
+  });
+
+  const byDiscipline = {};
+  let totalCompleted = 0;
+  let totalTarget = 0;
+
+  for (const [disc, target] of Object.entries(targets)) {
+    const done = Math.min(completed[disc] || 0, target.count);
+    byDiscipline[disc] = {
+      completed: completed[disc] || 0,
+      target: target.count,
+      pct: target.count > 0 ? Math.round((done / target.count) * 100) : 100,
+    };
+    totalCompleted += done;
+    totalTarget += target.count;
+  }
+
+  const percentage = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+
+  return {
+    percentage,
+    byDiscipline,
+    keyWorkoutsHit: totalCompleted,
+    totalKeyWorkouts: totalTarget,
+  };
 }
 
 function clamp(value, min, max) {
