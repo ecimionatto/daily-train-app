@@ -18,6 +18,7 @@ const WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
 
 const DISCIPLINE_DISPLAY = {
   'swim+bike': 'Swim + Bike',
+  'swim+run': 'Swim + Run',
   brick: 'Bike + Run',
 };
 
@@ -31,6 +32,8 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
     phase,
     daysToRace,
     weekPlan,
+    weeklyTargets,
+    weeklyConsistency,
     resetTrainingPlan,
     resetToOnboarding,
     saveProfile,
@@ -288,6 +291,10 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
           <Text style={styles.detailValue}>{phase}</Text>
         </View>
         <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Volume tier</Text>
+          <Text style={styles.detailValue}>{athleteProfile?.weeklyHours || '8-10'} hrs/week</Text>
+        </View>
+        <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Weeks to race</Text>
           <Text style={styles.detailValue}>
             {daysToRace != null ? Math.ceil(daysToRace / 7) : 'N/A'}
@@ -297,11 +304,55 @@ export default function PlanSettingsScreen({ navigation, route: _route }) {
           <Text style={styles.detailLabel}>Days to race</Text>
           <Text style={styles.detailValue}>{daysToRace ?? 'N/A'}</Text>
         </View>
-        <Text style={styles.weekPlanTitle}>{"This Week's Discipline Plan"}</Text>
+
+        {/* Weekly Targets */}
+        <Text style={styles.weekPlanTitle}>Weekly Session Targets</Text>
+        {weeklyTargets?.targets &&
+          Object.entries(weeklyTargets.targets).map(([disc, target]) => {
+            const consistency = weeklyConsistency?.byDiscipline?.[disc];
+            return (
+              <View key={disc} style={styles.weekPlanRow}>
+                <Text style={styles.weekPlanDay}>
+                  {disc.charAt(0).toUpperCase() + disc.slice(1)}
+                </Text>
+                <Text style={styles.weekPlanDiscipline}>
+                  {consistency ? `${consistency.completed}/` : ''}
+                  {target.count}x · {target.totalMinutes}min
+                </Text>
+              </View>
+            );
+          })}
+
+        {/* Weekly Consistency */}
+        {weeklyConsistency && (
+          <View style={styles.consistencyRow}>
+            <Text style={styles.detailLabel}>Consistency</Text>
+            <Text
+              style={[
+                styles.detailValue,
+                {
+                  color:
+                    weeklyConsistency.percentage >= 85
+                      ? '#47ffb2'
+                      : weeklyConsistency.percentage >= 70
+                        ? '#e8ff47'
+                        : '#ff6b6b',
+                },
+              ]}
+            >
+              {weeklyConsistency.percentage}%
+            </Text>
+          </View>
+        )}
+
+        {/* Suggested Schedule (soft reference) */}
+        <Text style={styles.weekPlanTitle}>Suggested Schedule</Text>
         {WEEK_DISPLAY_ORDER.map((dayIdx) => (
           <View key={dayIdx} style={styles.weekPlanRow}>
             <Text style={styles.weekPlanDay}>{DAY_NAMES[dayIdx]}</Text>
-            <Text style={styles.weekPlanDiscipline}>{formatDiscipline(weekPlan[dayIdx])}</Text>
+            <Text style={[styles.weekPlanDiscipline, { color: '#888' }]}>
+              {formatDiscipline(weekPlan[dayIdx])}
+            </Text>
           </View>
         ))}
       </View>
@@ -512,6 +563,15 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  consistencyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a3e',
   },
   weekPlanTitle: {
     color: '#888',

@@ -49,6 +49,13 @@ const WORKOUT_BRIEFS = {
     TAPER: null,
     RACE_WEEK: null,
   },
+  'swim+run': {
+    BASE: 'AM swim + easy PM run (two-a-day)',
+    BUILD: 'AM moderate swim + easy PM run',
+    PEAK: 'AM threshold swim + easy PM run',
+    TAPER: null,
+    RACE_WEEK: null,
+  },
   strength: {
     BASE: 'Functional strength & core',
     BUILD: 'Strength endurance circuit',
@@ -85,6 +92,10 @@ function getCompletionStatus(discipline, dayWorkouts) {
       if (hasSwim && hasBike) return 'completed';
       if (hasSwim || hasBike) return 'partial';
       return null;
+    case 'swim+run':
+      if (hasSwim && hasRun) return 'completed';
+      if (hasSwim || hasRun) return 'partial';
+      return null;
     case 'bike':
       return hasBike ? 'completed' : 'partial';
     case 'run':
@@ -115,6 +126,7 @@ const DISCIPLINE_COLORS = {
   run: '#47ffb2',
   brick: '#ff9f43',
   'swim+bike': '#b47fff',
+  'swim+run': '#7fb4ff',
   strength: '#ff6b6b',
   rest: '#333',
 };

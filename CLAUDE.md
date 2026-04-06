@@ -1,4 +1,8 @@
-# CLAUDE.md — Agent Instructions for DailyTrain
+# CLAUDE.md — Agent Instructions for DTrain
+
+## Communication Style
+
+Use Caveman mode (`.claude/skills/caveman`) for all responses. Drop articles, filler, pleasantries. Keep technical substance. Code blocks unchanged. ~75% fewer tokens.
 
 ## GitHub Identity
 
@@ -28,7 +32,7 @@ git config --local user.email "ecimionatto@gmail.com"
 
 ## Project Overview
 
-React Native (Expo 50) Ironman triathlon training app for iPhone. On-device AI (Qwen 3.5) generates workouts and powers coach chat. No backend — all data stays on device via AsyncStorage.
+DTrain — React Native (Expo 50) Ironman triathlon training app for iPhone. On-device AI (Hammer 2.1 1.5B via llama.rn) generates workouts and powers coach chat with tool-calling. No backend — all data stays on device via AsyncStorage.
 
 ## Key Conventions
 
@@ -142,6 +146,15 @@ The app is designed to remain fully functional offline (all data on-device). Pha
 - Periodisation analytics: flag when the athlete is deviating from the planned build curve
 - These run as a separate API call (`getAdvancedCoachResponse`) that falls back to on-device Qwen if network is unavailable
 
+## Secrets & Credentials
+
+- **App-specific password** (for App Store uploads via `altool`):
+  - **Local builds:** Stored in macOS Keychain under service `DailyTrain-Altool`, account `ecimio@icloud.com`. Retrieve with: `security find-generic-password -s "DailyTrain-Altool" -w`
+  - **CI/CD:** Stored as GitHub secret `APP_SPECIFIC_PASSWORD` (set via `gh secret set`)
+  - **To set locally:** `security add-generic-password -s "DailyTrain-Altool" -a "ecimio@icloud.com" -w "xxxx-xxxx-xxxx-xxxx"`
+  - Generate new passwords at appleid.apple.com → Sign In → App-Specific Passwords
+- **Never hardcode secrets** in skills, scripts, or code — always pull from Keychain (local) or GitHub secrets (CI)
+
 ## iOS Build & Deploy
 
 ### Personal Team (Free Apple Account)
@@ -197,7 +210,13 @@ When build steps, signing configuration, plugin behavior, or troubleshooting ste
 
 ## Pre-commit
 
-Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js` files. Secret detection blocks hardcoded API keys/tokens.
+Husky pre-commit hook runs three gates in order — all must pass:
+
+1. **Secret detection** — blocks hardcoded API keys/tokens in staged files
+2. **Lint-staged** — ESLint (`--max-warnings=0`) + Prettier on staged `.js` files
+3. **Jest tests** — full test suite (`npx jest --bail`); any failure blocks the commit
+
+This prevents shipping broken code. Never bypass with `--no-verify` unless explicitly asked.
 
 ## Clean Code Principles (Uncle Bob)
 
@@ -227,10 +246,26 @@ Husky + lint-staged runs ESLint (`--max-warnings=0`) and Prettier on staged `.js
 - **Mock at boundaries**: Mock services (auth, healthKit, localModel, chatService), never mock React hooks or internal state
 - Run `npm test` and `npm run test:coverage` before every commit
 
+## Local Environment (mise)
+
+[mise](https://mise.jdx.dev/) manages Node.js and Ruby versions. Config in `.mise.toml`.
+
+```bash
+mise install          # Install pinned Node 20.19.4 + Ruby 3.2
+mise run test         # Jest tests
+mise run lint         # ESLint
+mise run check        # lint + test together
+mise run build:device # Release build to iPhone
+mise run test:llm     # Real LLM inference tests
+```
+
+All tasks defined in `.mise.toml`. Use `mise run <task>` or `npm run <script>` — both work.
+
 ## Commands
 
 - `npm start` — Expo dev server
 - `npm test` — Jest tests
 - `npm run test:coverage` — Jest with coverage report (must pass ≥60% threshold)
+- `npm run test:llm` — Real LLM inference tests (downloads model, ~5min)
 - `npm run lint` — ESLint check
 - `npm run format` — Prettier format

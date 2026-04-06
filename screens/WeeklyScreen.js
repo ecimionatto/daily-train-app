@@ -12,6 +12,8 @@ const DISCIPLINES = {
   rest: '#333',
   strength: '#ff6b6b',
   brick: '#ff9f43',
+  'swim+bike': '#b47fff',
+  'swim+run': '#7fb4ff',
 };
 
 const DOT_OPACITY_DONE = 1;
@@ -75,7 +77,8 @@ function buildWeekGrid(weekPlan, completedWorkouts) {
 }
 
 export default function WeeklyScreen({ navigation }) {
-  const { athleteProfile, phase, daysToRace, weekPlan, completedWorkouts } = useApp();
+  const { athleteProfile, phase, daysToRace, weekPlan, weeklyConsistency, completedWorkouts } =
+    useApp();
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
@@ -151,7 +154,55 @@ export default function WeeklyScreen({ navigation }) {
         </Text>
       </View>
 
-      {/* Week Grid — one dot per prescribed day */}
+      {/* Weekly Consistency Ring */}
+      {weeklyConsistency && (
+        <View style={styles.consistencySection}>
+          <View style={styles.consistencyHeader}>
+            <Text
+              style={[
+                styles.consistencyPct,
+                {
+                  color:
+                    weeklyConsistency.percentage >= 85
+                      ? '#47ffb2'
+                      : weeklyConsistency.percentage >= 70
+                        ? '#e8ff47'
+                        : '#ff6b6b',
+                },
+              ]}
+            >
+              {weeklyConsistency.percentage}%
+            </Text>
+            <View style={styles.consistencyMeta}>
+              <Text style={styles.consistencyTitle}>WEEKLY CONSISTENCY</Text>
+              <Text style={styles.consistencySessions}>
+                {weeklyConsistency.keyWorkoutsHit}/{weeklyConsistency.totalKeyWorkouts} key sessions
+              </Text>
+            </View>
+          </View>
+
+          {/* Discipline Target Cards */}
+          <View style={styles.targetCards}>
+            {Object.entries(weeklyConsistency.byDiscipline).map(([disc, data]) => {
+              const done = data.completed >= data.target;
+              return (
+                <View key={disc} style={[styles.targetCard, done && styles.targetCardDone]}>
+                  <Text style={styles.targetCardDisc}>
+                    {disc.charAt(0).toUpperCase() + disc.slice(1)}
+                  </Text>
+                  <Text style={[styles.targetCardCount, done && styles.targetCardCountDone]}>
+                    {data.completed}/{data.target}
+                  </Text>
+                  {done && <Text style={styles.targetCardCheck}>✓</Text>}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* Week Grid — suggested schedule */}
+      <Text style={styles.gridLabel}>SUGGESTED SCHEDULE</Text>
       <View style={styles.gridContainer}>
         {weekGrid.map((gridDay, i) => (
           <View key={i} style={styles.gridDay}>
@@ -264,6 +315,84 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 14,
     marginTop: 4,
+  },
+  consistencySection: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#47ffb2',
+  },
+  consistencyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  consistencyPct: {
+    fontSize: 48,
+    fontWeight: '900',
+    marginRight: 16,
+  },
+  consistencyMeta: {
+    flex: 1,
+  },
+  consistencyTitle: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  consistencySessions: {
+    color: '#ccc',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  targetCards: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  targetCard: {
+    flex: 1,
+    backgroundColor: '#2a2a3e',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+  },
+  targetCardDone: {
+    backgroundColor: '#1a3a2e',
+    borderWidth: 1,
+    borderColor: '#47ffb244',
+  },
+  targetCardDisc: {
+    color: '#ccc',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  targetCardCount: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  targetCardCountDone: {
+    color: '#47ffb2',
+  },
+  targetCardCheck: {
+    color: '#47ffb2',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  gridLabel: {
+    color: '#666',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
   gridContainer: {
     flexDirection: 'row',

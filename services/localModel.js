@@ -4,17 +4,22 @@
  * Runs a quantized GGUF model locally on the device. All inference
  * happens on-device for privacy and offline capability.
  *
- * The model is downloaded on first launch (~1.3GB for Qwen 3.5 2B Q4_K_M)
+ * The model is downloaded on first launch (~940MB for Hammer 2.1 1.5B Q4_K_M)
  * and cached in the app's document directory.
+ *
+ * Hammer 2.1 (MadeAgents) is purpose-built for on-device function calling
+ * via "function masking". Based on Qwen 2.5 Coder, uses ChatML template.
+ * Supports native tool_calls via llama.rn's completion API.
  */
 
 import RNFS from 'react-native-fs';
 import { initLlama } from 'llama.rn';
 import { isRunningOnly, getDisciplinesForProfile } from './raceConfig';
+import { WEEKLY_TARGETS, SESSION_DURATIONS, PHASE_CONFIG } from './trainingHeuristics';
 
-const MODEL_FILENAME = 'Qwen3.5-2B-Q4_K_M.gguf';
+const MODEL_FILENAME = 'Hammer2.1-1.5b-Q4_K_M.gguf';
 const MODEL_URL =
-  'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf';
+  'https://huggingface.co/mradermacher/Hammer2.1-1.5b-GGUF/resolve/main/Hammer2.1-1.5b.Q4_K_M.gguf';
 const STOP_WORDS = ['<|im_end|>', '<|endoftext|>', '<|end|>'];
 
 let llamaContext = null;
@@ -265,6 +270,75 @@ export async function runInference(systemPrompt, userPrompt) {
 }
 
 /**
+ * Run structured extraction — low-temperature, short-output inference for JSON parsing.
+ * Used by skill executors to extract structured intents from natural language.
+ * Throws ModelNotReadyError if the model is not loaded.
+ */
+export async function runStructuredExtraction(systemPrompt, userPrompt) {
+  if (!modelLoaded || !llamaContext) {
+    throw new ModelNotReadyError();
+  }
+
+  const result = await llamaContext.completion({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    n_predict: 128,
+    stop: STOP_WORDS,
+    temperature: 0.1,
+    top_p: 0.9,
+    top_k: 40,
+  });
+  return result.text || null;
+}
+
+/**
+ * Run tool-calling inference — the model decides which tool to call (if any)
+ * and extracts structured arguments from natural language.
+ *
+ * Uses llama.rn's native tool calling support (tools param → tool_calls in result).
+ * Low temperature for reliable tool selection.
+ *
+ * @param {string} systemPrompt - System prompt (coach identity + athlete context)
+ * @param {string} userPrompt - Athlete's message
+ * @param {Array} tools - Tool schemas (OpenAI-compatible function definitions)
+ * @returns {{ text: string|null, toolCalls: Array<{ function: { name, arguments } }> }}
+ */
+export async function runToolInference(systemPrompt, userPrompt, tools) {
+  if (!modelLoaded || !llamaContext) {
+    throw new ModelNotReadyError();
+  }
+
+  try {
+    const result = await llamaContext.completion({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      tools,
+      jinja: true,
+      n_predict: 256,
+      stop: STOP_WORDS,
+      temperature: 0.1,
+      top_p: 0.9,
+      top_k: 40,
+    });
+
+    return {
+      text: result.text || null,
+      toolCalls: result.tool_calls || [],
+    };
+  } catch (e) {
+    const msg = (e?.message || '').toLowerCase();
+    if (msg.includes('context') || msg.includes('kv cache') || msg.includes('too long')) {
+      throw new ContextFullError();
+    }
+    throw e;
+  }
+}
+
+/**
  * Return a HR range hint string for a given zone number.
  * Returns empty string if hrZones is unavailable.
  *
@@ -327,9 +401,11 @@ export async function generateWorkoutLocally({
   const doubleSessionContext =
     targetDiscipline === 'swim+bike'
       ? `\nDISCIPLINE swim+bike = TWO-A-DAY: Generate two sections — "Morning — Swim" (AM, moderate Z2-Z3 OK) and "Afternoon — Bike" (PM, MUST be easy Z1-Z2 only). Athlete waits ≥4h between sessions. Split total duration ~50% swim / 50% bike.`
-      : targetDiscipline === 'strength'
-        ? `\nSTRENGTH SESSION RULES: Phase=${phase}. ${phase === 'BUILD' ? 'POWER phase — moderate weight moved fast (jump squats, hang cleans, box jumps, plyometrics).' : phase === 'PEAK' || phase === 'TAPER' ? 'MAINTENANCE phase — preserve strength, no new load (goblet squats, SL RDL, planks, calf raises).' : 'MAX STRENGTH phase — heavy compound lifts (back squat 4×5, RDL 4×5, bent-over row 3×5, split squat 3×6/side).'} Focus: single-leg stability, tendon stiffness, core anti-rotation. NEVER train to failure — 1–2 reps in reserve. Scheduled ≥6h after main session. Sections: Warmup (movement prep), Main Lifts (2–3 exercises), Accessory (stability/anti-rotation), Cooldown.`
-        : '';
+      : targetDiscipline === 'swim+run'
+        ? `\nDISCIPLINE swim+run = TWO-A-DAY: Generate two sections — "Morning — Swim" (AM, moderate Z2-Z3 OK) and "Afternoon — Run" (PM, MUST be easy Z1-Z2 only). Athlete waits ≥4h between sessions. Split total duration ~50% swim / 50% run.`
+        : targetDiscipline === 'strength'
+          ? `\nSTRENGTH SESSION RULES: Phase=${phase}. ${phase === 'BUILD' ? 'POWER phase — moderate weight moved fast (jump squats, hang cleans, box jumps, plyometrics).' : phase === 'PEAK' || phase === 'TAPER' ? 'MAINTENANCE phase — preserve strength, no new load (goblet squats, SL RDL, planks, calf raises).' : 'MAX STRENGTH phase — heavy compound lifts (back squat 4×5, RDL 4×5, bent-over row 3×5, split squat 3×6/side).'} Focus: single-leg stability, tendon stiffness, core anti-rotation. NEVER train to failure — 1–2 reps in reserve. Scheduled ≥6h after main session. Sections: Warmup (movement prep), Main Lifts (2–3 exercises), Accessory (stability/anti-rotation), Cooldown.`
+          : '';
 
   const systemPrompt = `You are an elite ${coachType} coach. Generate a JSON workout.
 Respond ONLY with valid JSON matching this structure:
@@ -817,6 +893,102 @@ export function isRestWeek(daysToRace) {
 }
 
 /**
+ * Count per-discipline touches in a weekly plan.
+ * Combined sessions count for both: swim+bike → swim+bike, swim+run → swim+run, brick → bike+run.
+ */
+export function countDisciplineTouches(plan) {
+  const counts = { swim: 0, bike: 0, run: 0, strength: 0 };
+  for (const d of plan) {
+    if (d === 'swim' || d === 'swim+bike' || d === 'swim+run') counts.swim++;
+    if (d === 'bike' || d === 'swim+bike' || d === 'brick') counts.bike++;
+    if (d === 'run' || d === 'swim+run' || d === 'brick') counts.run++;
+    if (d === 'strength') counts.strength++;
+  }
+  return counts;
+}
+
+/**
+ * Validate a 7-day plan against training constraints.
+ * Returns { valid, violations } where violations describe what's broken.
+ *
+ * @param {string[]} plan - 7-day plan array (Sun=0..Sat=6)
+ * @param {Object} profile - Athlete profile (weeklyHours determines min counts)
+ * @returns {{ valid: boolean, violations: Array }}
+ */
+export function validatePlanConstraints(plan, profile) {
+  const counts = countDisciplineTouches(plan);
+  const minRequired = profile?.weeklyHours === '5-7' ? 2 : 3;
+  const violations = [];
+
+  for (const disc of ['swim', 'bike', 'run']) {
+    if (counts[disc] < minRequired) {
+      violations.push({
+        type: 'undercount',
+        discipline: disc,
+        actual: counts[disc],
+        required: minRequired,
+      });
+    }
+  }
+
+  // Check consecutive same single-discipline (excluding combined sessions and brick)
+  for (let i = 1; i < plan.length; i++) {
+    const prev = plan[i - 1];
+    const curr = plan[i];
+    if (curr === prev && curr !== 'rest' && !curr.includes('+') && curr !== 'brick') {
+      violations.push({ type: 'consecutive', day: i, discipline: curr });
+    }
+  }
+
+  return { valid: violations.length === 0, violations };
+}
+
+/**
+ * Attempt to repair a plan that violates constraints.
+ * Greedy approach: for each under-represented discipline, find an over-represented
+ * day and swap. Never touches user-requested rest/avoid days.
+ *
+ * @param {string[]} plan - Violated plan
+ * @param {Array} violations - From validatePlanConstraints
+ * @param {Object} profile - Athlete profile
+ * @returns {string[]|null} Repaired plan or null if unrepairable
+ */
+function attemptPlanRepair(plan, violations, profile) {
+  const result = [...plan];
+  const prefs = profile?.schedulePreferences || {};
+  const protectedDays = new Set([...(prefs.restDays || []), ...(prefs.avoidDays || [])]);
+
+  for (const v of violations) {
+    if (v.type !== 'undercount') continue;
+
+    const needed = v.required - v.actual;
+    let fixed = 0;
+
+    // Find days with over-represented disciplines to swap
+    const counts = countDisciplineTouches(result);
+    for (let day = 0; day < 7 && fixed < needed; day++) {
+      if (protectedDays.has(day)) continue;
+      const current = result[day];
+      // Only swap standalone disciplines that are over-represented
+      if (current === 'rest' || current.includes('+') || current === 'brick') continue;
+      if (current === v.discipline) continue;
+      if (counts[current] <= (profile?.weeklyHours === '5-7' ? 2 : 3)) continue;
+
+      result[day] = v.discipline;
+      counts[current]--;
+      counts[v.discipline]++;
+      fixed++;
+    }
+
+    if (fixed < needed) return null; // Unrepairable
+  }
+
+  // Verify the repair didn't create new violations
+  const recheck = validatePlanConstraints(result, profile);
+  return recheck.valid ? result : null;
+}
+
+/**
  * Resolve schedule preference defaults from profile.
  * Returns { weekendPreference, swimDays } with sensible defaults.
  */
@@ -858,30 +1030,41 @@ export function getWeeklyDisciplinePlan(phase, profile) {
 
   // Templates indexed by permutation key.
   // High-Low stacking: strength placed same day as hardest interval session.
+  // All templates guarantee ≥3 swim, ≥3 bike, ≥3 run for 8+ hour athletes.
+  // swim+bike = 1 swim + 1 bike, swim+run = 1 swim + 1 run, brick = 1 bike + 1 run.
   const templates = {
-    // --- MWF swim, Bike Sat / Run Sun (original default) ---
+    // --- MWF swim, Bike Sat / Run Sun ---
+    // Sun=0  Mon=1       Tue=2     Wed=3      Thu=4      Fri=5       Sat=6
     'mwf_bike-sat-run-sun': {
-      BASE: ['run', 'swim+bike', 'run', 'strength', 'run', 'swim', 'brick'],
-      BUILD: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
-      PEAK: ['run', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'brick'],
+      BASE: ['run', 'swim+bike', 'swim+run', 'strength', 'run', 'swim+bike', 'brick'],
+      // swim: s+b(1)+s+r(2)+s+b(5)=3  bike: s+b(1)+s+b(5)+brick(6)=3  run: run(0)+s+r(2)+run(4)+brick(6)=4
+      BUILD: ['run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run', 'brick'],
+      // swim: s+b(1)+s+r(2)+s+b(3)=3  bike: s+b(1)+s+b(3)+brick(6)=3  run: run(0)+s+r(2)+run(5)+brick(6)=4
+      PEAK: ['run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run', 'brick'],
     },
     // --- MWF swim, Run Sat / Bike Sun ---
     'mwf_run-sat-bike-sun': {
-      BASE: ['bike', 'swim+bike', 'run', 'strength', 'run', 'swim', 'run'],
-      BUILD: ['bike', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'run'],
-      PEAK: ['bike', 'swim+bike', 'run', 'swim+bike', 'strength', 'swim', 'run'],
+      BASE: ['brick', 'swim+bike', 'swim+run', 'strength', 'run', 'swim+bike', 'run'],
+      // swim: s+b(1)+s+r(2)+s+b(5)=3  bike: brick(0)+s+b(1)+s+b(5)=3  run: brick(0)+s+r(2)+run(4)+run(6)=4
+      BUILD: ['brick', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run', 'run'],
+      // swim: s+b(1)+s+r(2)+s+b(3)=3  bike: brick(0)+s+b(1)+s+b(3)=3  run: brick(0)+s+r(2)+run(5)+run(6)=4
+      PEAK: ['brick', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run', 'run'],
     },
     // --- TTS swim, Bike Sat / Run Sun ---
     'tts_bike-sat-run-sun': {
-      BASE: ['run', 'run', 'swim+bike', 'strength', 'swim', 'run', 'brick'],
-      BUILD: ['run', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'brick'],
-      PEAK: ['run', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'brick'],
+      BASE: ['run', 'run', 'swim+bike', 'strength', 'swim+bike', 'swim+run', 'brick'],
+      // swim: s+b(2)+s+b(4)+s+r(5)=3  bike: s+b(2)+s+b(4)+brick(6)=3  run: run(0)+run(1)+s+r(5)+brick(6)=4
+      BUILD: ['run', 'run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'brick'],
+      // swim: s+b(2)+s+r(3)+s+b(4)=3  bike: s+b(2)+s+b(4)+brick(6)=3  run: run(0)+run(1)+s+r(3)+brick(6)=4
+      PEAK: ['run', 'run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'brick'],
     },
     // --- TTS swim, Run Sat / Bike Sun ---
     'tts_run-sat-bike-sun': {
-      BASE: ['bike', 'run', 'swim+bike', 'strength', 'swim', 'run', 'run'],
-      BUILD: ['bike', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'run'],
-      PEAK: ['bike', 'run', 'swim+bike', 'run', 'swim+bike', 'strength', 'run'],
+      BASE: ['brick', 'run', 'swim+bike', 'strength', 'swim+bike', 'swim+run', 'run'],
+      // swim: s+b(2)+s+b(4)+s+r(5)=3  bike: brick(0)+s+b(2)+s+b(4)=3  run: brick(0)+run(1)+s+r(5)+run(6)=4
+      BUILD: ['brick', 'run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run'],
+      // swim: s+b(2)+s+r(3)+s+b(4)=3  bike: brick(0)+s+b(2)+s+b(4)=3  run: brick(0)+run(1)+s+r(3)+run(6)=4
+      PEAK: ['brick', 'run', 'swim+bike', 'swim+run', 'swim+bike', 'strength', 'run'],
     },
   };
 
@@ -983,6 +1166,14 @@ function applySchedulePreferences(plan, profile, longDiscipline) {
         result[currentStrIdx] = displaced;
       }
     }
+  }
+
+  // Post-swap validation: ensure constraints still hold after all swaps
+  const validation = validatePlanConstraints(result, profile);
+  if (!validation.valid) {
+    const repaired = attemptPlanRepair(result, validation.violations, profile);
+    if (repaired) return repaired;
+    return plan; // Safe fallback to original template
   }
 
   return result;
@@ -1360,6 +1551,31 @@ function buildWorkout(discipline, duration, readiness, phase, _profile) {
         },
       ],
     },
+    'swim+run': {
+      title: intensity === 'hard' ? 'AM Threshold Swim + PM Easy Run' : 'AM Swim + PM Easy Run',
+      discipline: 'swim+run',
+      duration,
+      summary:
+        'Two-a-day: morning swim session followed by an easy afternoon run. Wait ≥4 hours between sessions.',
+      intensity,
+      sections: [
+        {
+          name: 'Morning — Swim',
+          notes: 'Complete before noon. Light meal 90 min before. Hydrate well between sessions.',
+          sets: [
+            {
+              description: `${Math.round(duration * 0.5)} min swim — aerobic effort (Z2)`,
+              zone: 2,
+            },
+          ],
+        },
+        {
+          name: 'Afternoon — Run',
+          notes: 'Easy Zone 1-2 only. Recovery pace — save the hard work for dedicated run days.',
+          sets: [{ description: `${Math.round(duration * 0.5)} min easy run (Z1-Z2)`, zone: 1 }],
+        },
+      ],
+    },
     rest: {
       title: 'Rest Day',
       discipline: 'rest',
@@ -1420,4 +1636,125 @@ export async function analyzeRecentWorkouts(recentDays, healthData) {
   const totalSessions = recentDays.reduce((sum, d) => sum + d.workouts.length, 0);
   if (totalSessions === 0) return 'No recent sessions recorded.';
   return `You completed ${totalSessions} session${totalSessions > 1 ? 's' : ''} recently across ${disciplines.join(', ')}. Keep the consistency going — recovery and sleep are key between sessions.`;
+}
+
+// ---------------------------------------------------------------------------
+// Weekly Targets & Adaptive Discipline Selection (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the Monday (start of ISO week) for a given date.
+ * @param {Date} date
+ * @returns {Date} Monday at 00:00:00
+ */
+function getMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Generate weekly session targets based on volume tier, phase, and history.
+ * Returns a target object with per-discipline counts and total minutes.
+ *
+ * @param {string} phase - Training phase (BASE, BUILD, PEAK, TAPER, RACE_WEEK)
+ * @param {Object} profile - Athlete profile with weeklyHours and schedulePreferences
+ * @param {Object|null} trainingHistory - Output of analyzeTrainingHistory (unused for now)
+ * @returns {{ weekStartDate: string, targets: Object, phase: string, totalSessions: number, suggestedSchedule: string[], isDeloadWeek: boolean, consistency: null }}
+ */
+export function generateWeeklyTargets(phase, profile, _trainingHistory = null) {
+  const tier = profile?.weeklyHours || '8-10';
+  const targets = WEEKLY_TARGETS[tier] || WEEKLY_TARGETS['8-10'];
+  const phaseConfig = PHASE_CONFIG[phase] || PHASE_CONFIG['BASE'];
+
+  const weeklyTargets = {
+    weekStartDate: getMonday(new Date()).toISOString().split('T')[0],
+    targets: {
+      swim: {
+        count: targets.swim,
+        totalMinutes: Math.round(
+          targets.swim * (SESSION_DURATIONS[tier]?.swim || 50) * phaseConfig.volumeMult
+        ),
+      },
+      bike: {
+        count: targets.bike,
+        totalMinutes: Math.round(
+          targets.bike * (SESSION_DURATIONS[tier]?.bike || 70) * phaseConfig.volumeMult
+        ),
+      },
+      run: {
+        count: targets.run,
+        totalMinutes: Math.round(
+          targets.run * (SESSION_DURATIONS[tier]?.run || 55) * phaseConfig.volumeMult
+        ),
+      },
+      strength: {
+        count: targets.strength,
+        totalMinutes: targets.strength * (SESSION_DURATIONS[tier]?.strength || 40),
+      },
+    },
+    phase,
+    totalSessions: targets.swim + targets.bike + targets.run + targets.strength,
+    suggestedSchedule: getWeeklyDisciplinePlan(phase, profile),
+    isDeloadWeek: false,
+    consistency: null,
+  };
+
+  return weeklyTargets;
+}
+
+/**
+ * Pick today's discipline based on weekly targets, completions, and readiness.
+ *
+ * Priority: (1) rest if readiness < 40, (2) rest if all targets met,
+ * (3) suggested schedule discipline if it still has gaps,
+ * (4) most-urgent (largest gap) discipline.
+ *
+ * @param {Object} weeklyTargets - Output of generateWeeklyTargets
+ * @param {Array} completedThisWeek - Completed workout objects with { discipline }
+ * @param {number} dayOfWeek - 0=Sun, 1=Mon ... 6=Sat
+ * @param {Object} healthData - Optional, with readinessScore
+ * @returns {string} Discipline name or 'rest'
+ */
+export function selectTodaysDiscipline(
+  weeklyTargets,
+  completedThisWeek,
+  dayOfWeek,
+  healthData = {}
+) {
+  if (!weeklyTargets?.targets) return 'rest';
+
+  const { targets } = weeklyTargets;
+  const readiness = healthData?.readinessScore || 70;
+
+  if (readiness < 40) return 'rest';
+
+  // Count completed per discipline this week
+  const completed = { swim: 0, bike: 0, run: 0, strength: 0 };
+  (completedThisWeek || []).forEach((w) => {
+    if (completed[w.discipline] !== undefined) completed[w.discipline]++;
+  });
+
+  // Find disciplines still needing sessions (gap = target - completed)
+  const gaps = Object.entries(targets)
+    .filter(([disc]) => disc !== 'strength' || (dayOfWeek >= 1 && dayOfWeek <= 5))
+    .map(([disc, t]) => ({ discipline: disc, gap: t.count - (completed[disc] || 0) }))
+    .filter((g) => g.gap > 0)
+    .sort((a, b) => b.gap - a.gap);
+
+  if (gaps.length === 0) return 'rest';
+
+  // Check suggested schedule as hint
+  const suggested = weeklyTargets.suggestedSchedule?.[dayOfWeek];
+  const suggestedDisc = suggested?.split('+')[0];
+
+  // Prefer suggested if it still has gaps
+  if (suggestedDisc && gaps.find((g) => g.discipline === suggestedDisc)) {
+    return suggested;
+  }
+
+  return gaps[0].discipline;
 }

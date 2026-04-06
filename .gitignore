@@ -38,3 +38,9 @@ Thumbs.db
 
 # Coverage
 coverage/
+
+# LLM model cache (downloaded on demand by test:llm)
+.models/
+
+# Build artifacts
+build/

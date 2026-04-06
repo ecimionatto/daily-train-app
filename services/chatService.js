@@ -14,6 +14,8 @@ import {
   COACH_CONSTRAINTS,
   PLAN_RULES,
 } from './agentConstitution';
+import { processMessage as agentProcessMessage } from './agentOrchestrator';
+import { sanitizeModelOutput } from './modelSanitizer';
 
 const FATIGUE_KEYWORDS = [
   'tired',
@@ -52,6 +54,33 @@ const BODY_PARTS = [
 
 const INTENSITY_EASIER_KEYWORDS = ['easier', 'too hard', 'lighter', 'less intense', 'dial back'];
 const INTENSITY_HARDER_KEYWORDS = ['harder', 'too easy', 'push me', 'more intense', 'step up'];
+
+const INCOMPLETE_WORKOUT_KEYWORDS = [
+  "couldn't complete",
+  'could not complete',
+  'had to walk',
+  'cut short',
+  'cut it short',
+  "couldn't finish",
+  'could not finish',
+  'had to stop',
+  'gave up',
+  'bailed',
+  'only managed',
+  'barely finished',
+];
+
+const HEAVY_EFFORT_KEYWORDS = [
+  'too heavy',
+  'too hard',
+  'too intense',
+  'was too much',
+  'struggled',
+  'bonked',
+  'hit the wall',
+];
+
+const DISCIPLINE_NAMES = ['swim', 'bike', 'run', 'ride', 'cycle', 'strength'];
 
 const LOAD_REDUCE_KEYWORDS = [
   'take it easy',
@@ -410,13 +439,32 @@ export function getOffTopicResponse() {
 
 /**
  * Process a user message and return a coach response.
- * Checks off-topic first, then tries AI model, falls back to rule-based.
+ *
+ * Flow:
+ * 1. Off-topic filter
+ * 2. Agent orchestrator (LLM tool-calling via Hammer 2.1)
+ * 3. Fallback: keyword-based handlers (classifyMessage → handler chain)
+ * 4. Fallback: AI model text inference
+ * 5. Fallback: rule-based response
  */
 export async function getCoachResponse(userMessage, context, conversationHistory) {
   if (isOffTopic(userMessage)) {
     return getOffTopicResponse();
   }
 
+  // 1. Try agent orchestrator (LLM tool-calling) — handles pending confirmations too
+  try {
+    const agentResult = await agentProcessMessage(userMessage, context);
+    if (agentResult !== null) return agentResult;
+  } catch (e) {
+    if (!(e instanceof ModelNotReadyError)) {
+      // eslint-disable-next-line no-console
+      console.warn('[Coach] Agent orchestrator failed:', e.message);
+    }
+    // Fall through to existing handlers
+  }
+
+  // 2. Existing keyword-based handlers (fallback chain)
   const category = classifyMessage(userMessage);
 
   // Handle full plan regeneration requests
@@ -429,7 +477,7 @@ export async function getCoachResponse(userMessage, context, conversationHistory
     return handleProfileChange(userMessage, context);
   }
 
-  // Handle schedule preference changes
+  // Handle schedule preference changes (fallback if skill executor missed or failed)
   if (category === 'schedule_preference' && context.onProfileUpdate) {
     return handleSchedulePreference(userMessage, context);
   }
@@ -453,14 +501,10 @@ export async function getCoachResponse(userMessage, context, conversationHistory
 
   try {
     const modelResponse = await runInference(systemPrompt, userPrompt);
-    return modelResponse
-      ? modelResponse.trim()
-      : generateFallbackResponse(category, userMessage, context);
+    const sanitized = sanitizeModelOutput(modelResponse);
+    return sanitized || generateFallbackResponse(category, userMessage, context);
   } catch (e) {
     if (e instanceof ModelNotReadyError) {
-      // AI model still loading — respond with rule-based engine so the user
-      // is never blocked. Append a soft note so they know to expect richer
-      // answers once the model finishes downloading.
       const fallback = generateFallbackResponse(category, userMessage, context);
       const progress = getModelLoadingProgress();
       const progressNote =
@@ -562,14 +606,25 @@ function parseAllScheduleIntents(message) {
     'strength on',
     'strength to',
     'move strength',
+    'move my strength',
     'change strength',
+    'change my strength',
+    'strength training on',
+    'strength training to',
+    'strength workout on',
+    'strength workout to',
     'weights on',
     'weights to',
     'move weights',
+    'move my weights',
     'gym on',
     'gym to',
+    'gym day on',
+    'gym day to',
     'lifting on',
     'lifting to',
+    'lifting day on',
+    'lifting day to',
     'strength day',
     'strength session',
   ];
@@ -672,7 +727,7 @@ async function handleSchedulePreference(userMessage, context) {
 
   if (!hasStringIntents && !hasDayIntents) {
     const systemPrompt = buildCoachSystemPrompt(context);
-    const prompt = `${userMessage}\n\n[The athlete is trying to change their schedule preference but the specific days are unclear. Ask them to clarify which days, and give examples based on their current plan. Keep it under 80 words.]`;
+    const prompt = `${userMessage}\n\n[The athlete wants to change their schedule but the specific days are unclear. Ask which days, give examples from their current plan.]`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
     return `I want to update your schedule — could you mention specific days? For example: 'I want long sessions on weekends' or 'Move my rest day to Monday'.`;
@@ -714,7 +769,7 @@ async function handleSchedulePreference(userMessage, context) {
 
   const changeSummary = changeDescs.join(', and ');
   const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
-  const prompt = `I just updated the athlete's schedule: ${changeSummary}. Confirm this warmly, briefly explain how their weekly plan will adapt, and keep it under 80 words.`;
+  const prompt = `I just updated the athlete's schedule: ${changeSummary}. Confirm warmly, explain briefly how their weekly plan adapts.`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
@@ -797,7 +852,7 @@ async function handleLoadAdjustment(userMessage, context) {
 
   const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updatedProfile });
   const changeDesc = `${confirmationParts.join(' and ')}${expiryStr}`;
-  const prompt = `I just updated the athlete's training plan: ${changeDesc}. Confirm this empathetically, explain briefly how their upcoming workouts will change, and keep it under 100 words.`;
+  const prompt = `I just updated the athlete's training plan: ${changeDesc}. Confirm empathetically, explain briefly how upcoming workouts change.`;
   const aiResponse = await runInference(systemPrompt, prompt);
   if (aiResponse) return aiResponse.trim();
 
@@ -889,7 +944,7 @@ async function handleProfileChange(userMessage, context) {
     const updated = { ...athleteProfile, ...updates };
     await onProfileUpdate(updated);
     const systemPrompt = buildCoachSystemPrompt({ ...context, athleteProfile: updated });
-    const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training phases and upcoming workouts will adapt, and encourage them. Keep it under 100 words.`;
+    const prompt = `The athlete just updated their plan: ${confirmParts.join(', ')}. Confirm the change, explain briefly how their training adapts, and encourage them.`;
     const aiResponse = await runInference(systemPrompt, prompt);
     if (aiResponse) return aiResponse.trim();
     return `Got it! I've updated your ${confirmParts.join(' and ')}. Your training phases and workouts will adjust automatically — every session from here is tailored to your new target!`;
@@ -1486,7 +1541,7 @@ export async function generateProactiveGreeting(context) {
   const systemPrompt = `${buildIdentitySection('endurance triathlon')}
 Generate a brief, motivating morning message for your athlete.
 Include today's workout preview and race countdown encouragement.${yesterdayScore ? " Include yesterday's performance feedback." : " Do NOT mention yesterday's workout or completion percentage — no data available."}
-Keep it under 100 words. Be warm, specific, and push them to follow the plan. NEVER fabricate statistics or percentages — only reference data provided below.`;
+Be warm, specific, and push them to follow the plan. Only reference data provided below.`;
 
   const parts = [];
   if (yesterdayScore?.completionScore !== null && yesterdayScore?.completionScore !== undefined) {
@@ -1731,6 +1786,30 @@ export function classifyMessage(message) {
       ],
     },
     {
+      key: 'fatigue_report',
+      keywords: [
+        "couldn't complete",
+        'could not complete',
+        'had to walk',
+        'cut short',
+        'cut it short',
+        'too heavy',
+        'was too hard for me',
+        "couldn't finish",
+        'could not finish',
+        'struggled with',
+        'struggled through',
+        'bonked',
+        'hit the wall',
+        'had to stop',
+        'gave up',
+        'bailed on',
+        'only managed',
+        'barely finished',
+        'was too much',
+      ],
+    },
+    {
       key: 'schedule_preference',
       keywords: [
         'long sessions on',
@@ -1762,18 +1841,31 @@ export function classifyMessage(message) {
         'free on weekdays',
         'only train on',
         'move strength',
+        'move my strength',
         'change strength',
+        'change my strength',
         'strength on',
         'strength to',
         'strength session on',
+        'strength session to',
+        'strength training on',
+        'strength training to',
+        'strength workout on',
+        'strength workout to',
+        'strength day on',
         'strength day to',
         'move weights',
+        'move my weights',
         'weights on',
         'weights to',
         'gym on',
         'gym to',
+        'gym day on',
+        'gym day to',
         'lifting on',
         'lifting to',
+        'lifting day on',
+        'lifting day to',
       ],
     },
     {
@@ -1875,6 +1967,23 @@ export function classifyMessage(message) {
       ],
     },
     {
+      key: 'trend_analysis',
+      keywords: [
+        'analyze my training',
+        'training analysis',
+        'weekly review',
+        'review my week',
+        'how was my week',
+        'am i on track',
+        'training trends',
+        'any recommendations',
+        'suggest changes',
+        'optimize my plan',
+        'what should i change',
+        'how is my training',
+      ],
+    },
+    {
       key: 'readiness_inquiry',
       keywords: [
         'readiness',
@@ -1957,7 +2066,7 @@ export function classifyMessage(message) {
  * Generate a rule-based response without any model.
  * Every response must reference actual athlete data — never generic introductions.
  */
-export function generateFallbackResponse(category, _userMessage, context) {
+export function generateFallbackResponse(category, userMessage, context) {
   const {
     readinessScore,
     phase,
@@ -1985,7 +2094,7 @@ export function generateFallbackResponse(category, _userMessage, context) {
     case 'profile_change':
       return `Tell me your new race date or goal and I'll update your plan. For example: 'My race is on September 28, 2026' or 'I signed up for a half ironman in June'.`;
     case 'completed_workout':
-      return buildCompletedWorkoutResponse(workoutHistory, yesterdayScore);
+      return buildCompletedWorkoutResponse(workoutHistory, yesterdayScore, userMessage, context);
     case 'workout_inquiry':
       return buildWorkoutInquiryResponse(todayWorkout, score, daysToRace, phaseName);
     case 'schedule_inquiry':
@@ -2002,19 +2111,115 @@ export function generateFallbackResponse(category, _userMessage, context) {
     case 'workout_swap':
     case 'workout_modification':
       return buildWorkoutModResponse(todayWorkout, score);
+    case 'fatigue_report':
+      return buildFatigueResponse(userMessage, context);
     case 'recovery':
-      return buildRecoveryResponse(healthData, score);
+      return buildRecoveryResponse(healthData, score, userMessage, context);
     case 'nutrition':
       return buildNutritionResponse(phase, daysToRace);
     case 'race_strategy':
       return buildRaceStrategyResponse(phase, daysToRace);
     default:
-      return buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yesterdayScore);
+      return buildGeneralResponse(
+        todayWorkout,
+        score,
+        daysToRace,
+        phaseName,
+        yesterdayScore,
+        userMessage,
+        context
+      );
   }
 }
 
-function buildCompletedWorkoutResponse(workoutHistory, yesterdayScore) {
+/**
+ * Detect which discipline the athlete mentioned in their message.
+ * Returns the discipline name or null.
+ */
+function detectMentionedDiscipline(message) {
+  const lower = message.toLowerCase();
+  const aliases = {
+    ride: 'bike',
+    cycle: 'bike',
+    cycling: 'bike',
+    running: 'run',
+    swimming: 'swim',
+  };
+  for (const name of DISCIPLINE_NAMES) {
+    if (lower.includes(name)) return aliases[name] || name;
+  }
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    if (lower.includes(alias)) return canonical;
+  }
+  return null;
+}
+
+/**
+ * Detect if the athlete references a time period in their message.
+ * Returns 'yesterday', 'today', 'recent', or null.
+ */
+function detectTimePeriod(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes('yesterday') || lower.includes("yesterday's")) return 'yesterday';
+  if (lower.includes('today') || lower.includes("today's")) return 'today';
+  if (lower.includes('last') || lower.includes('recent') || lower.includes('this week')) {
+    return 'recent';
+  }
+  return null;
+}
+
+/**
+ * Find a relevant workout from history matching discipline and time reference.
+ * Returns the workout object or null.
+ */
+function findReferencedWorkout(context, discipline, timePeriod) {
+  const history = context.completedWorkouts || context.workoutHistory || [];
+  if (history.length === 0) return null;
+
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+
+  return (
+    history.find((w) => {
+      const matchesDiscipline = !discipline || w.discipline === discipline;
+      if (!matchesDiscipline) return false;
+
+      if (timePeriod === 'yesterday' && w.startDate) {
+        return new Date(w.startDate).toDateString() === yesterday.toDateString();
+      }
+      return true;
+    }) ||
+    (discipline ? history.find((w) => w.discipline === discipline) : history[history.length - 1])
+  );
+}
+
+/**
+ * Format a workout reference into a readable string.
+ */
+function formatWorkoutReference(workout) {
+  if (!workout) return null;
+  const parts = [workout.discipline];
+  const dur = workout.durationMinutes || workout.duration;
+  if (dur) parts.push(`${dur}min`);
+  if (workout.avgHeartRate) parts.push(`avg HR ${workout.avgHeartRate}bpm`);
+  if (workout.effortScore) parts.push(`effort ${workout.effortScore}/10`);
+  return parts.join(', ');
+}
+
+function buildCompletedWorkoutResponse(workoutHistory, yesterdayScore, userMessage, context) {
   const parts = [];
+
+  // If athlete asks about a specific discipline, reference it first
+  const discipline = detectMentionedDiscipline(userMessage || '');
+  if (discipline && context) {
+    const workout = findReferencedWorkout(context, discipline, detectTimePeriod(userMessage || ''));
+    const ref = formatWorkoutReference(workout);
+    if (ref) {
+      parts.push(`Your last ${discipline} session: ${ref}.`);
+    }
+  }
 
   // Yesterday's specific data
   if (yesterdayScore) {
@@ -2253,26 +2458,146 @@ function buildWorkoutModResponse(todayWorkout, score) {
   return response;
 }
 
-function buildRecoveryResponse(healthData, score) {
-  let response = `Your current readiness score is ${score}/100. `;
-  if (healthData) {
-    const parts = [];
-    if (healthData.hrv) parts.push(`HRV is ${healthData.hrv}ms`);
-    if (healthData.restingHR) parts.push(`resting HR is ${healthData.restingHR}bpm`);
-    if (healthData.sleepHours) parts.push(`sleep was ${healthData.sleepHours.toFixed(1)} hours`);
-    if (parts.length) response += `Today's metrics: ${parts.join(', ')}. `;
+function buildRecoveryResponse(healthData, score, userMessage, context) {
+  const parts = [];
+  parts.push(`Your current readiness score is ${score}/100.`);
+  parts.push(formatHealthMetrics(healthData));
+
+  // Context-aware: detect what the athlete reported
+  const lower = (userMessage || '').toLowerCase();
+  const reportsIncomplete = INCOMPLETE_WORKOUT_KEYWORDS.some((kw) => lower.includes(kw));
+  const reportsHeavy = HEAVY_EFFORT_KEYWORDS.some((kw) => lower.includes(kw));
+
+  if (reportsIncomplete || reportsHeavy) {
+    return buildRecoveryWithFeedback(parts, score, reportsIncomplete, userMessage, context);
   }
+
+  parts.push(getRecoveryAdvice(score));
+  return parts.filter(Boolean).join(' ');
+}
+
+/**
+ * Format health metrics into a readable string.
+ */
+function formatHealthMetrics(healthData) {
+  if (!healthData) return '';
+  const metrics = [];
+  if (healthData.hrv) metrics.push(`HRV is ${healthData.hrv}ms`);
+  if (healthData.restingHR) metrics.push(`resting HR is ${healthData.restingHR}bpm`);
+  if (healthData.sleepHours) metrics.push(`sleep was ${healthData.sleepHours.toFixed(1)} hours`);
+  return metrics.length > 0 ? `Today's metrics: ${metrics.join(', ')}.` : '';
+}
+
+/**
+ * Standard recovery advice based on readiness score.
+ */
+function getRecoveryAdvice(score) {
   if (score < 55) {
-    response +=
-      'Your body needs recovery. Prioritize 8+ hours of sleep, hydration, light stretching, and easy nutrition. Skip intensity today.';
-  } else if (score < 75) {
-    response +=
-      'Recovery is adequate but not optimal. Focus on quality sleep tonight and keep training moderate. Consider adding foam rolling.';
-  } else {
-    response +=
-      'Your recovery metrics look strong. You are well-recovered and ready for quality training.';
+    return 'Your body needs recovery. Prioritize 8+ hours of sleep, hydration, light stretching, and easy nutrition. Skip intensity today.';
   }
-  return response;
+  if (score < 75) {
+    return 'Recovery is adequate but not optimal. Focus on quality sleep tonight and keep training moderate. Consider adding foam rolling.';
+  }
+  return 'Your recovery metrics look strong. You are well-recovered and ready for quality training.';
+}
+
+/**
+ * Recovery response when athlete reports incomplete workout or heavy effort.
+ */
+function buildRecoveryWithFeedback(baseParts, score, reportsIncomplete, userMessage, context) {
+  const discipline = detectMentionedDiscipline(userMessage || '');
+  const referencedWorkout = findReferencedWorkout(
+    context || {},
+    discipline,
+    detectTimePeriod(userMessage || '')
+  );
+  const workoutRef = formatWorkoutReference(referencedWorkout);
+
+  if (reportsIncomplete) {
+    baseParts.push('I hear you — not every session goes as planned, and that is completely okay.');
+  } else {
+    baseParts.push('Sounds like that session pushed you hard.');
+  }
+
+  if (workoutRef) {
+    baseParts.push(`Looking at your ${workoutRef} — that is useful feedback.`);
+  }
+
+  if (score < 60) {
+    baseParts.push(
+      'Your readiness confirms your body needs a break. Consider an easy swim or full rest tomorrow.'
+    );
+  } else if (score > 70) {
+    baseParts.push(
+      'Your readiness is actually decent — the issue may be intensity rather than overall load. Try reducing the hard efforts for the next 2-3 days.'
+    );
+  } else {
+    baseParts.push(
+      'Consider reducing intensity for the next 2-3 sessions and swapping to an easier discipline tomorrow.'
+    );
+  }
+
+  return baseParts.filter(Boolean).join(' ');
+}
+
+/**
+ * Response for explicit fatigue reports: incomplete workouts, bonking, struggling.
+ * Empathetic, references actual data, suggests concrete adaptation.
+ */
+function buildFatigueResponse(userMessage, context) {
+  const score = context?.readinessScore || 65;
+  const parts = [];
+
+  // Acknowledge the specific issue
+  parts.push(buildFatigueAcknowledgment(userMessage));
+
+  // Reference readiness
+  parts.push(`Your readiness is at ${score}/100.`);
+
+  // Reference the workout they struggled with
+  const discipline = detectMentionedDiscipline(userMessage || '');
+  const timePeriod = detectTimePeriod(userMessage || '');
+  const workout = findReferencedWorkout(context || {}, discipline, timePeriod);
+  const workoutRef = formatWorkoutReference(workout);
+  if (workoutRef) {
+    parts.push(`I see your ${workoutRef} session — that is real data I can work with.`);
+  }
+
+  // Suggest adaptation based on readiness
+  parts.push(buildFatigueAdaptation(score, discipline));
+
+  return parts.filter(Boolean).join(' ');
+}
+
+/**
+ * Empathetic acknowledgment based on what the athlete actually said.
+ */
+function buildFatigueAcknowledgment(userMessage) {
+  const lower = (userMessage || '').toLowerCase();
+  if (INCOMPLETE_WORKOUT_KEYWORDS.some((kw) => lower.includes(kw))) {
+    return 'Stopping when your body says stop is smart, not weak.';
+  }
+  if (lower.includes('bonk') || lower.includes('hit the wall')) {
+    return 'Bonking is tough — it usually signals a fueling or pacing issue, not a fitness problem.';
+  }
+  if (HEAVY_EFFORT_KEYWORDS.some((kw) => lower.includes(kw))) {
+    return 'That sounds like the session asked more than your body could give today.';
+  }
+  return 'I hear you — that sounds like a tough one.';
+}
+
+/**
+ * Concrete adaptation suggestion based on readiness and discipline.
+ */
+function buildFatigueAdaptation(score, discipline) {
+  const altDiscipline = discipline === 'run' ? 'easy swim or spin' : 'easy walk or swim';
+  if (score < 60) {
+    return `With readiness this low, take tomorrow as a full rest day or very easy ${altDiscipline}. Reduce intensity for the next 2-3 days.`;
+  }
+  if (score > 70) {
+    return `Your readiness is decent, so this may be an intensity issue rather than overall fatigue. Consider swapping tomorrow for an ${altDiscipline} and keeping efforts in Zone 2 for the next few days.`;
+  }
+  return `Let's reduce the load for 2-3 days — swap to an ${altDiscipline} tomorrow and keep all efforts easy until you feel better.`;
 }
 
 function buildNutritionResponse(phase, daysToRace) {
@@ -2304,8 +2629,22 @@ function buildRaceStrategyResponse(phase, daysToRace) {
   return response;
 }
 
-function buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yesterdayScore) {
+function buildGeneralResponse(
+  todayWorkout,
+  score,
+  daysToRace,
+  phaseName,
+  yesterdayScore,
+  userMessage,
+  context
+) {
   const parts = [];
+
+  // Check if the athlete references a specific workout or discipline
+  const mentionedWorkout = buildMentionedWorkoutContext(userMessage, context);
+  if (mentionedWorkout) {
+    parts.push(mentionedWorkout);
+  }
 
   if (todayWorkout) {
     parts.push(
@@ -2330,4 +2669,23 @@ function buildGeneralResponse(todayWorkout, score, daysToRace, phaseName, yester
   }
 
   return parts.join(' ');
+}
+
+/**
+ * Build context about a workout the athlete mentioned in their message.
+ * Returns a descriptive string or null.
+ */
+function buildMentionedWorkoutContext(userMessage, context) {
+  if (!userMessage || !context) return null;
+  const discipline = detectMentionedDiscipline(userMessage);
+  const timePeriod = detectTimePeriod(userMessage);
+  if (!discipline && !timePeriod) return null;
+
+  const workout = findReferencedWorkout(context, discipline, timePeriod);
+  const ref = formatWorkoutReference(workout);
+  if (!ref) return null;
+
+  const timeLabel =
+    timePeriod === 'yesterday' ? "Yesterday's" : timePeriod === 'today' ? "Today's" : 'Your recent';
+  return `${timeLabel} ${ref}.`;
 }

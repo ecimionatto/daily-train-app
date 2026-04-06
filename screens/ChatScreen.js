@@ -21,35 +21,54 @@ const SUGGESTIONS = [
 ];
 
 /**
- * Render inline markdown: **bold** and *italic* only.
+ * Render a single line with inline markdown: **bold** and *italic*.
  * Returns an array of <Text> elements safe for React Native.
  */
-function renderInlineMarkdown(text, baseStyle, key) {
+function renderInlineLine(line, baseStyle, lineKey) {
   const parts = [];
-  // Split on **bold** or *italic* tokens
-  const tokens = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const tokens = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
   tokens.forEach((token, i) => {
     if (token.startsWith('**') && token.endsWith('**')) {
       parts.push(
-        <Text key={`${key}-${i}`} style={[baseStyle, styles.bold]}>
+        <Text key={`${lineKey}-${i}`} style={[baseStyle, styles.bold]}>
           {token.slice(2, -2)}
         </Text>
       );
     } else if (token.startsWith('*') && token.endsWith('*')) {
       parts.push(
-        <Text key={`${key}-${i}`} style={[baseStyle, styles.italic]}>
+        <Text key={`${lineKey}-${i}`} style={[baseStyle, styles.italic]}>
           {token.slice(1, -1)}
         </Text>
       );
     } else if (token.length > 0) {
       parts.push(
-        <Text key={`${key}-${i}`} style={baseStyle}>
+        <Text key={`${lineKey}-${i}`} style={baseStyle}>
           {token}
         </Text>
       );
     }
   });
   return parts;
+}
+
+/**
+ * Render markdown text with newline support.
+ * Splits on \n, renders each line with inline markdown,
+ * joins with actual line breaks via nested Text elements.
+ */
+function renderInlineMarkdown(text, baseStyle, key) {
+  if (!text) return null;
+  // Strip any remaining backtick markers (last-resort cleanup)
+  const cleaned = text.replace(/`{1,3}/g, '');
+  const lines = cleaned.split('\n');
+  if (lines.length === 1) return renderInlineLine(text, baseStyle, key);
+
+  return lines.map((line, i) => (
+    <Text key={`${key}-line-${i}`}>
+      {i > 0 && '\n'}
+      {line.length > 0 ? renderInlineLine(line, baseStyle, `${key}-${i}`) : null}
+    </Text>
+  ));
 }
 
 export default function ChatScreen() {

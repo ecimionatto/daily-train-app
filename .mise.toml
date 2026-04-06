@@ -1,10 +1,21 @@
 [tools]
-node = "20"
+node = "20.19.4"
+ruby = "3.2"
 
+[env]
+LANG = "en_US.UTF-8"
+LC_ALL = "en_US.UTF-8"
+
+# --- Development ---
 [tasks.start]
 description = "Start Expo dev server"
 run = "npx expo start"
 
+[tasks.install]
+description = "Install all dependencies"
+run = "npm ci"
+
+# --- Quality ---
 [tasks.lint]
 description = "Run ESLint on all JS files"
 run = "npx eslint ."
@@ -21,6 +32,7 @@ run = "npx prettier --write '**/*.js'"
 description = "Check Prettier formatting"
 run = "npx prettier --check '**/*.js'"
 
+# --- Testing ---
 [tasks.test]
 description = "Run Jest tests"
 run = "npx jest"
@@ -28,3 +40,37 @@ run = "npx jest"
 [tasks."test:watch"]
 description = "Run Jest in watch mode"
 run = "npx jest --watch"
+
+[tasks."test:coverage"]
+description = "Run Jest with coverage report"
+run = "npx jest --coverage"
+
+[tasks."test:llm"]
+description = "Run real LLM inference tests (downloads model)"
+run = "node --experimental-vm-modules __tests__/llm/coachInference.mjs"
+
+# --- iOS Build ---
+[tasks.prebuild]
+description = "Expo prebuild for iOS"
+run = "npx expo prebuild --platform ios --clean"
+
+[tasks."build:device"]
+description = "Build Release for physical iPhone"
+run = """
+xcodebuild -workspace ios/DTrain.xcworkspace -scheme DTrain \
+  -destination 'id=00008140-001A543814E2801C' -configuration Release \
+  DEVELOPMENT_TEAM=J52KM8A8YH -allowProvisioningUpdates build
+"""
+
+[tasks."build:simulator"]
+description = "Build for iOS Simulator"
+run = """
+xcodebuild -workspace ios/DTrain.xcworkspace -scheme DTrain \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO build
+"""
+
+# --- Checks (pre-commit equivalent) ---
+[tasks.check]
+description = "Run all checks: lint + test"
+depends = ["lint", "test"]

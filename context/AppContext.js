@@ -24,8 +24,12 @@ import {
   getWeeklyDisciplinePlan,
   getBaseDuration,
   generateWorkoutLocally,
+  generateWeeklyTargets,
+  selectTodaysDiscipline,
   sanitizeWorkout,
 } from '../services/localModel';
+import { calculateWeeklyConsistencyScore } from '../services/workoutScoring';
+import { analyzeTrainingHistory } from '../services/historyAnalyzer';
 import { getDisciplinesForProfile } from '../services/raceConfig';
 
 const AppContext = createContext();
@@ -53,6 +57,8 @@ export function AppProvider({ children }) {
   const [trends, setTrends] = useState(null);
   const [modelStatus, setModelStatus] = useState('idle');
   const [modelProgress, setModelProgress] = useState(0);
+  const [trainingHistory, setTrainingHistory] = useState(null);
+  const [weeklyConsistency, setWeeklyConsistency] = useState(null);
 
   // --- Centralized domain values (single source of truth) ---
   const phase = useMemo(() => {
@@ -78,6 +84,11 @@ export function AppProvider({ children }) {
     if (!athleteProfile) return Array(7).fill('rest');
     return getWeeklyDisciplinePlan(phase, athleteProfile);
   }, [phase, athleteProfile]);
+
+  const weeklyTargets = useMemo(() => {
+    if (!athleteProfile) return null;
+    return generateWeeklyTargets(phase, athleteProfile, trainingHistory);
+  }, [phase, athleteProfile, trainingHistory]);
 
   useEffect(() => {
     loadProfile();
@@ -114,9 +125,17 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (completedWorkouts && completedWorkouts.length > 0) {
       computeTrends();
+      computeTrainingHistory();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completedWorkouts, healthData]);
+
+  useEffect(() => {
+    if (weeklyTargets && completedWorkouts) {
+      computeWeeklyConsistency();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weeklyTargets, completedWorkouts]);
 
   async function loadProfile() {
     try {
@@ -174,22 +193,9 @@ export function AppProvider({ children }) {
       const today = new Date().toDateString();
       if (parsed.date !== today) return; // stale date — ignore
 
-      // Validate that the cached discipline still matches the plan.
-      // If the plan was regenerated or rebuilt, the cache may say "bike"
-      // while the plan now prescribes "run". Discard and regenerate if so.
-      const phase = getTrainingPhase();
-      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
-      const prescribedDiscipline = weekPlan[new Date().getDay()];
-      const cachedDiscipline = parsed.workout?.discipline;
-
-      if (cachedDiscipline && prescribedDiscipline && cachedDiscipline !== prescribedDiscipline) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[AppContext] Cached workout discipline "${cachedDiscipline}" does not match plan "${prescribedDiscipline}" — clearing cache`
-        );
-        await AsyncStorage.removeItem('todayWorkout');
-        return;
-      }
+      // Consistency model: no rigid discipline validation.
+      // The adaptive selectTodaysDiscipline() picks based on weekly targets,
+      // so a cached workout from earlier today is valid regardless of discipline.
 
       // Re-run sanitizer on cached workout to fix stale zone-intensity mismatches
       // (e.g. AI-generated "Tempo Run" with Zone 2 sections from before the fix).
@@ -266,23 +272,8 @@ export function AppProvider({ children }) {
 
   async function saveTodayWorkout(workout) {
     try {
-      // Guard: only save if discipline matches the plan for today.
-      // Prevents caching a generated workout with the wrong discipline
-      // (which would cause the coach to contradict Week/Home screens).
-      const phase = getTrainingPhase();
-      const weekPlan = getWeeklyDisciplinePlan(phase, athleteProfile);
-      const prescribedDiscipline = weekPlan[new Date().getDay()];
-      if (
-        workout?.discipline &&
-        prescribedDiscipline &&
-        workout.discipline !== prescribedDiscipline
-      ) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[AppContext] Refusing to save workout with discipline "${workout.discipline}" — plan prescribes "${prescribedDiscipline}" today`
-        );
-        return;
-      }
+      // Consistency model: discipline is selected adaptively via
+      // selectTodaysDiscipline() — no rigid day-based guard needed.
       const today = new Date().toDateString();
       await AsyncStorage.setItem('todayWorkout', JSON.stringify({ date: today, workout }));
       setTodayWorkout(workout);
@@ -464,6 +455,60 @@ export function AppProvider({ children }) {
     await saveTomorrowCache(nextWorkout, tomorrowAlternatives, nextIndex);
   }
 
+  function computeTrainingHistory() {
+    try {
+      const analysis = analyzeTrainingHistory(completedWorkouts, 30);
+      setTrainingHistory(analysis);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[AppContext] Failed to analyze training history:', e.message || e);
+    }
+  }
+
+  function computeWeeklyConsistency() {
+    if (!weeklyTargets) return;
+    // Filter completedWorkouts to current week (Monday–Sunday)
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const daysSinceMonday = (dayOfWeek + 6) % 7;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - daysSinceMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const thisWeek = (completedWorkouts || []).filter((w) => {
+      if (!w.startDate) return false;
+      return new Date(w.startDate) >= monday;
+    });
+
+    const consistency = calculateWeeklyConsistencyScore(weeklyTargets, thisWeek);
+    setWeeklyConsistency(consistency);
+  }
+
+  /**
+   * Get today's recommended discipline using the adaptive model.
+   * Falls back to weekPlan if weeklyTargets not available.
+   */
+  function getTodayDiscipline() {
+    if (weeklyTargets) {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const daysSinceMonday = (dayOfWeek + 6) % 7;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - daysSinceMonday);
+      monday.setHours(0, 0, 0, 0);
+
+      const thisWeek = (completedWorkouts || []).filter((w) => {
+        if (!w.startDate) return false;
+        return new Date(w.startDate) >= monday;
+      });
+
+      return selectTodaysDiscipline(weeklyTargets, thisWeek, dayOfWeek, {
+        readinessScore: readinessScore ?? 65,
+      });
+    }
+    return weekPlan[new Date().getDay()];
+  }
+
   function computeRecentScore(healthWorkouts) {
     // Build per-day breakdown for last 3 days including today
     const recentDays = findRecentCompletedWorkouts(healthWorkouts, 3);
@@ -609,6 +654,10 @@ export function AppProvider({ children }) {
     phase,
     daysToRace,
     weekPlan,
+    weeklyTargets,
+    weeklyConsistency,
+    trainingHistory,
+    getTodayDiscipline,
     alternativeWorkout,
     saveAlternativeWorkout,
     recentScore,
