@@ -29,9 +29,9 @@ export function sanitizeModelOutput(text) {
     .replace(/<\|end\|>/g, '')
     .trim();
 
-  // Strip code blocks (```...```) and standalone backtick markers
+  // Strip code blocks (```...```) and all backtick markers (`, ``, ```)
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '').trim();
-  cleaned = cleaned.replace(/```/g, '').trim();
+  cleaned = cleaned.replace(/`{1,3}/g, '').trim();
 
   // Strip markdown headers (# ## ###) — keep the text
   cleaned = cleaned.replace(/^#{1,3}\s+/gm, '').trim();

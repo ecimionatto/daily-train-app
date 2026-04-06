@@ -161,3 +161,126 @@ describe('processMessage', () => {
     );
   });
 });
+
+/**
+ * Backtick leak prevention — every output path from processMessage()
+ * must strip backtick markers before reaching the user.
+ */
+describe('processMessage — backtick leak prevention', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  /** Helper: assert no backticks in text (string or object with .text) */
+  function expectNoBackticks(result) {
+    const text = typeof result === 'string' ? result : result?.text;
+    expect(text).toBeDefined();
+    expect(text).not.toMatch(/`/);
+  }
+
+  it('strips backticks from plain text response', async () => {
+    runToolInference.mockResolvedValue({
+      text: '```Great job on your Zone 2 run today.``` Keep building that aerobic base!',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('how was my run?', mockContext);
+    expectNoBackticks(result);
+  });
+
+  it('strips backticks from text response with code block markers', async () => {
+    runToolInference.mockResolvedValue({
+      text: '```json\n{"tip": "run easy"}\n```\nYour aerobic base is growing nicely.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('give me a tip', mockContext);
+    // sanitizeModelOutput strips code blocks; result should have no backticks
+    if (result) expectNoBackticks(result);
+  });
+
+  it('strips backticks from directResponse path', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [{ function: { name: 'set_schedule', arguments: '{}' } }],
+    });
+    executeSkillPreview.mockResolvedValue({
+      directResponse: '```No changes needed — schedule already matches your request.```',
+    });
+
+    const result = await processMessage('keep my schedule', mockContext);
+    expectNoBackticks(result);
+  });
+
+  it('strips backticks from needsClarification message path', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [{ function: { name: 'set_schedule', arguments: '{}' } }],
+    });
+    executeSkillPreview.mockResolvedValue({
+      needsClarification: true,
+      message: '```Which days would you like to change?``` Please specify swim days.',
+    });
+
+    const result = await processMessage('change my days', mockContext);
+    expectNoBackticks(result);
+  });
+
+  it('strips backticks from diff table in preview response', async () => {
+    runToolInference.mockResolvedValue({
+      text: null,
+      toolCalls: [{ function: { name: 'set_schedule', arguments: '{"strengthDays":[1]}' } }],
+    });
+    executeSkillPreview.mockResolvedValue({
+      diff: {
+        table: '```\nMon: swim+bike → strength\nTue: unchanged\n```',
+        summary: '```1 day adjusted to fit your preference.```',
+      },
+      updatedProfile: {},
+      executor: 'setSchedule',
+    });
+
+    const result = await processMessage('move strength to Monday', mockContext);
+    expectNoBackticks(result);
+    expect(result.text).not.toMatch(/`/);
+  });
+
+  it('strips backticks from commit confirmation text', async () => {
+    const pendingAction = { executor: 'setSchedule', updatedProfile: {} };
+    classifyConfirmation.mockReturnValue('yes');
+    commitSkill.mockResolvedValue('```Schedule updated successfully!``` Your new plan is active.');
+
+    const result = await processMessage('yes', { ...mockContext, pendingAction });
+    expectNoBackticks(result);
+    expect(result.clearPending).toBe(true);
+  });
+
+  it('strips inline backticks from all output paths', async () => {
+    runToolInference.mockResolvedValue({
+      text: 'Focus on `Zone 2` effort for your `bike` session today.',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('what should I do today?', mockContext);
+    expectNoBackticks(result);
+  });
+
+  it('strips triple backticks wrapping entire response', async () => {
+    runToolInference.mockResolvedValue({
+      text: '```\nYour consistency is at 80% this week. Great progress on swim targets.\n```',
+      toolCalls: [],
+    });
+
+    const result = await processMessage('how is my week going?', mockContext);
+    if (result) expectNoBackticks(result);
+  });
+
+  it('strips backticks from commit that returns backtick-wrapped text', async () => {
+    const pendingAction = { executor: 'adjustLoad', updatedProfile: {} };
+    classifyConfirmation.mockReturnValue('yes');
+    commitSkill.mockResolvedValue('```Load reduced for 3 days.``` Take it easy and recover well.');
+
+    const result = await processMessage('yes do it', { ...mockContext, pendingAction });
+    expectNoBackticks(result);
+  });
+});

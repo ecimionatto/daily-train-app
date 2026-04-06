@@ -58,7 +58,9 @@ function renderInlineLine(line, baseStyle, lineKey) {
  */
 function renderInlineMarkdown(text, baseStyle, key) {
   if (!text) return null;
-  const lines = text.split('\n');
+  // Strip any remaining backtick markers (last-resort cleanup)
+  const cleaned = text.replace(/`{1,3}/g, '');
+  const lines = cleaned.split('\n');
   if (lines.length === 1) return renderInlineLine(text, baseStyle, key);
 
   return lines.map((line, i) => (

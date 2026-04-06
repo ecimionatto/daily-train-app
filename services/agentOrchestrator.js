@@ -17,6 +17,11 @@ import { executeSkillPreview, commitSkill, classifyConfirmation } from './skills
 import { buildIdentitySection, COACH_CONSTRAINTS, COACH_KNOWLEDGE } from './agentConstitution';
 import { sanitizeModelOutput } from './modelSanitizer';
 
+/** Strip all backtick markers from text (last-resort cleanup). */
+function stripBackticks(text) {
+  return text.replace(/`{1,3}/g, '').trim();
+}
+
 /**
  * Process an athlete message through the agent loop.
  *
@@ -77,14 +82,18 @@ async function executeToolCall(toolCall, userMessage, context) {
   if (preview.fallbackToHandler) return null;
 
   // Skill needs clarification
-  if (preview.needsClarification) return preview.message;
+  if (preview.needsClarification)
+    return sanitizeModelOutput(preview.message) || stripBackticks(preview.message);
 
   // Skill returned direct response (no confirmation needed)
-  if (preview.directResponse) return preview.directResponse;
+  if (preview.directResponse)
+    return sanitizeModelOutput(preview.directResponse) || stripBackticks(preview.directResponse);
 
   // Skill returned a diff with confirmation required
   if (preview.diff) {
-    const previewText = `Here's what would change:\n${preview.diff.table}\n${preview.diff.summary}\n\nShall I apply this?`;
+    const table = stripBackticks(preview.diff.table || '');
+    const summary = stripBackticks(preview.diff.summary || '');
+    const previewText = `Here's what would change:\n${table}\n${summary}\n\nShall I apply this?`;
     return { text: previewText, pendingAction: preview };
   }
 
@@ -97,7 +106,8 @@ async function executeToolCall(toolCall, userMessage, context) {
 async function handleConfirmation(userMessage, context) {
   const answer = classifyConfirmation(userMessage);
   if (answer === 'yes') {
-    const msg = await commitSkill(context.pendingAction, context);
+    const raw = await commitSkill(context.pendingAction, context);
+    const msg = typeof raw === 'string' ? stripBackticks(raw) : raw;
     return { text: msg, clearPending: true };
   }
   if (answer === 'no') {
